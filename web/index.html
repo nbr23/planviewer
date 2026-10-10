@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plans</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <h1><a href="/">Plans</a></h1>
+  <input id="q" type="search" placeholder="Search titles and content" aria-label="Search plans" autocomplete="off" spellcheck="false" autofocus>
+  <span id="count" class="muted"></span>
+</header>
+<main class="list">
+  <table id="plans">
+    <thead>
+      <tr>
+        <th class="col-title"><button type="button" data-sort="title">Title</button></th>
+        <th class="col-project"><button type="button" data-sort="project">Project</button></th>
+        <th class="col-date"><button type="button" data-sort="created">Created</button></th>
+        <th class="col-date"><button type="button" data-sort="updated">Updated</button></th>
+        <th class="col-size"><button type="button" data-sort="size">Size</button></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <p id="empty" class="muted" hidden>No plans match.</p>
+</main>
+</body>
+</html>
