@@ -8,5 +8,5 @@ services:
     ports:
       - "127.0.0.1:${PORT:-8080}:8080"
     volumes:
-      - "${PLANS_DIR:-~/.claude/plans}:/plans:ro"
-      - "${PROJECTS_DIR:-~/.claude/projects}:/projects:ro"
+      - "${CLAUDE_CONFIG_DIR:-~/.claude}/plans:/claude/plans:ro"
+      - "${CLAUDE_CONFIG_DIR:-~/.claude}/projects:/claude/projects:ro"

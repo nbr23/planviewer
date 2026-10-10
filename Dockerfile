@@ -7,6 +7,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /planviewer .
 
 FROM gcr.io/distroless/static
 COPY --from=build /planviewer /planviewer
+ENV CLAUDE_CONFIG_DIR=/claude
 USER 65532:65532
 EXPOSE 8080
-ENTRYPOINT ["/planviewer"]
+ENTRYPOINT ["/planviewer", "serve"]
