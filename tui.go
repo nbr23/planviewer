@@ -135,15 +135,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updatePlan(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := msg.(tea.KeyMsg); ok {
-		switch k.String() {
-		case "q", "esc", "backspace":
-			m.screen = listScreen
-			return m, m.load()
-		}
-	}
 	var cmd tea.Cmd
-	m.pager, cmd = m.pager.Update(msg)
+	var back bool
+	m.pager, cmd, back = m.pager.Update(msg)
+	if back {
+		m.screen = listScreen
+		return m, m.load()
+	}
 	return m, cmd
 }
 
@@ -213,7 +211,7 @@ func (m model) open() (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("cannot open %s: %v", name, err)
 		return m, m.load()
 	}
-	m.pager.open(p, m.q)
+	m.pager.open(p, m.q.terms)
 	m.screen = planScreen
 	return m, nil
 }
