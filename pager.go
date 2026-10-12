@@ -20,7 +20,6 @@ const (
 	pagerHeaderLines = 2
 	pagerFooterLines = 1
 	matchContext     = 2
-	wheelLines       = 3
 )
 
 var (
@@ -282,19 +281,8 @@ func (p *pager) submitPrompt() {
 }
 
 func (p pager) Update(msg tea.Msg) (pager, tea.Cmd, bool) {
-	switch msg := msg.(type) {
-	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionPress {
-			switch msg.Button {
-			case tea.MouseButtonWheelUp:
-				p.scrollTo(p.top - wheelLines)
-			case tea.MouseButtonWheelDown:
-				p.scrollTo(p.top + wheelLines)
-			}
-		}
-		return p, nil, false
-	case tea.KeyMsg:
-		return p.handleKey(msg)
+	if k, ok := msg.(tea.KeyMsg); ok {
+		return p.handleKey(k)
 	}
 	if p.prompt != noPrompt {
 		var cmd tea.Cmd

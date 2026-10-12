@@ -37,11 +37,12 @@ func press(t *testing.T, p pager, keys ...string) pager {
 	return p
 }
 
-func wheel(p pager, button tea.MouseButton, n int) pager {
-	for range n {
-		p, _, _ = p.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: button})
+func repeat(k string, n int) []string {
+	keys := make([]string, n)
+	for i := range keys {
+		keys[i] = k
 	}
-	return p
+	return keys
 }
 
 func testPager(t *testing.T, items int, terms string) pager {
@@ -65,12 +66,8 @@ func TestPagerScrollClamps(t *testing.T) {
 	}
 	bottom := len(p.lines) - p.height
 
-	p = wheel(p, tea.MouseButtonWheelDown, 100)
-	if p.top != bottom {
-		t.Fatalf("wheel down: top=%d, want %d", p.top, bottom)
-	}
-	for _, k := range []string{"space", "d", "j", "enter", "pgdown", "b", "G"} {
-		p = press(t, p, k, k, k, k, k, k, k, k, k, k, k, k, k, k, k, k, k, k, k, k, k, k)
+	for _, k := range []string{"j", "space", "d", "enter", "pgdown", "b", "G"} {
+		p = press(t, p, repeat(k, 200)...)
 		if p.top != bottom {
 			t.Fatalf("%q past the end: top=%d, want %d", k, p.top, bottom)
 		}
@@ -79,9 +76,9 @@ func TestPagerScrollClamps(t *testing.T) {
 		t.Fatalf("percent at bottom = %d", p.percent())
 	}
 
-	p = wheel(p, tea.MouseButtonWheelUp, 100)
+	p = press(t, p, repeat("k", 200)...)
 	if p.top != 0 {
-		t.Fatalf("wheel up: top=%d", p.top)
+		t.Fatalf("k past the top: top=%d", p.top)
 	}
 	p = press(t, p, "b", "t")
 	if p.top != 0 {
@@ -97,10 +94,6 @@ func TestPagerScrollClamps(t *testing.T) {
 		if short = press(t, short, k); short.top != 0 {
 			t.Fatalf("short plan %q: top=%d", k, short.top)
 		}
-	}
-	short = wheel(short, tea.MouseButtonWheelDown, 5)
-	if short.top != 0 {
-		t.Fatalf("short plan wheel: top=%d", short.top)
 	}
 }
 

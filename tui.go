@@ -75,7 +75,7 @@ func runProgram(store *Store, transcripts bool) error {
 	if _, err := glamour.NewTermRenderer(glamour.WithStylePath(style)); err != nil {
 		return fmt.Errorf("markdown style %q: %w", style, err)
 	}
-	_, err := tea.NewProgram(newModel(store, transcripts, style), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	_, err := tea.NewProgram(newModel(store, transcripts, style), tea.WithAltScreen()).Run()
 	return err
 }
 
@@ -146,16 +146,7 @@ func (m model) updatePlan(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.MouseMsg:
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.move(-1)
-		case tea.MouseButtonWheelDown:
-			m.move(1)
-		}
-		return m, nil
-	case tea.KeyMsg:
+	if msg, ok := msg.(tea.KeyMsg); ok {
 		m.status = ""
 		switch msg.String() {
 		case "up", "ctrl+p":
