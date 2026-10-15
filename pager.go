@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ const (
 )
 
 var (
+	replyBullet    = bulletFor(runtime.GOOS)
 	statusBarStyle = lipgloss.NewStyle().Reverse(true)
 	currentMark    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(accent).Bold(true)
 	pagerHelp      = [][2]string{
@@ -72,6 +74,7 @@ type document struct {
 	title   string
 	meta    []string
 	body    []byte
+	turns   []turn
 	updated time.Time
 	hint    string
 }
@@ -148,11 +151,77 @@ func (p *pager) render() {
 }
 
 func (p *pager) renderMarkdown(wrap int) (string, error) {
-	r, err := glamour.NewTermRenderer(glamour.WithStylePath(p.style), glamour.WithWordWrap(max(20, wrap-4)))
+	width := max(20, wrap-4)
+	r, err := glamour.NewTermRenderer(glamour.WithStylePath(p.style), glamour.WithWordWrap(width))
 	if err != nil {
 		return "", err
 	}
+	if p.doc.turns != nil {
+		return renderConversation(r, p.doc.turns, width)
+	}
 	return r.Render(string(p.doc.body))
+}
+
+// Claude Code draws ⏺ on macOS and ● elsewhere, where ⏺ often renders as emoji or double width.
+func bulletFor(goos string) string {
+	if goos == "darwin" {
+		return "⏺"
+	}
+	return "●"
+}
+
+func renderConversation(md *glamour.TermRenderer, turns []turn, width int) (string, error) {
+	var lines []string
+	for _, t := range turns {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		if t.user {
+			prompt := strings.Split(ansi.Wrap(t.text, width-2, ""), "\n")
+			for i, l := range prompt {
+				prompt[i] = mutedStyle.Render(l)
+			}
+			lines = append(lines, gutter(prompt, mutedStyle.Render(">"))...)
+			continue
+		}
+		out, err := md.Render(t.text)
+		if err != nil {
+			return "", err
+		}
+		lines = append(lines, gutter(dedent(trimBlank(strings.Split(out, "\n"))), replyBullet)...)
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func gutter(lines []string, marker string) []string {
+	for i := range lines {
+		if i == 0 {
+			lines[i] = marker + " " + lines[i]
+		} else {
+			lines[i] = "  " + lines[i]
+		}
+	}
+	return lines
+}
+
+func dedent(lines []string) []string {
+	indent := -1
+	for _, l := range lines {
+		plain := ansi.Strip(l)
+		if strings.TrimSpace(plain) == "" {
+			continue
+		}
+		if n := len(plain) - len(strings.TrimLeft(plain, " ")); indent < 0 || n < indent {
+			indent = n
+		}
+	}
+	if indent <= 0 {
+		return lines
+	}
+	for i, l := range lines {
+		lines[i] = ansi.TruncateLeft(l, indent, "")
+	}
+	return lines
 }
 
 func trimBlank(lines []string) []string {

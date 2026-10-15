@@ -314,7 +314,7 @@ func sessionDocument(s Session, now time.Time) document {
 		"created "+relativeTime(s.Created, now),
 		"updated "+relativeTime(s.Updated, now),
 		messageCount(s.Messages))
-	return document{name: s.ID, title: s.Title, meta: meta, body: s.markdown(), updated: s.Updated, hint: "r resume"}
+	return document{name: s.ID, title: s.Title, meta: meta, body: s.markdown(), turns: s.turns, updated: s.Updated, hint: "r resume"}
 }
 
 func (m *model) toggleMode() {

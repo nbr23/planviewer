@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestParseCommand(t *testing.T) {
@@ -231,8 +232,12 @@ func TestModelSessionsSearchOpenAndResume(t *testing.T) {
 	}
 
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if v := m.View(); m.screen != pagerScreen || !strings.Contains(v, "match 1/1") || !strings.Contains(v, "r resume") {
+	v := ansi.Strip(m.View())
+	if m.screen != pagerScreen || !strings.Contains(v, "match 1/1") || !strings.Contains(v, "r resume") {
 		t.Fatalf("session view:\n%s", v)
+	}
+	if !strings.Contains(v, "> why does the vacuum stall?") || !strings.Contains(v, replyBullet+" The fringe tangles") {
+		t.Fatalf("session view is not a conversation:\n%s", v)
 	}
 
 	next, cmd := m.Update(typeText("r"))

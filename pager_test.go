@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -181,5 +182,49 @@ func TestHighlightLinePreservesText(t *testing.T) {
 		if got := ansi.Strip(highlightLine(line, ranges, 0)); got != plain {
 			t.Errorf("highlight %v: %q, want %q", ranges, got, plain)
 		}
+	}
+}
+
+func TestRenderConversation(t *testing.T) {
+	md, err := glamour.NewTermRenderer(glamour.WithStylePath("dark"), glamour.WithWordWrap(40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := renderConversation(md, []turn{
+		{user: true, text: "why does the vacuum stall whenever it reaches the persian rug?"},
+		{text: "The fringe tangles around the brushroll.\n\n- lower the suction\n- lift the brush"},
+		{user: true, text: "thanks"},
+	}, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(ansi.Strip(out), "\n")
+	var trimmed []string
+	for _, l := range lines {
+		if ansi.StringWidth(l) > 40 {
+			t.Errorf("line wider than 40: %q", l)
+		}
+		trimmed = append(trimmed, strings.TrimRight(l, " "))
+	}
+	want := []string{
+		"> why does the vacuum stall whenever it",
+		"  reaches the persian rug?",
+		"",
+		replyBullet + " The fringe tangles around the",
+		"  brushroll.",
+		"",
+		"  • lower the suction",
+		"  • lift the brush",
+		"",
+		"> thanks",
+	}
+	if strings.Join(trimmed, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got\n%s\nwant\n%s", strings.Join(trimmed, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestBulletFor(t *testing.T) {
+	if bulletFor("darwin") != "⏺" || bulletFor("linux") != "●" {
+		t.Fatalf("bulletFor = %q, %q", bulletFor("darwin"), bulletFor("linux"))
 	}
 }
