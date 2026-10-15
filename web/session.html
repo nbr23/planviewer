@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/plan.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <h1><a id="back" href="/sessions" data-list="sessions-list">Sessions</a></h1>
+  <nav class="tabs" aria-label="Actions">
+    <button type="button" id="copy" data-copy="resume">Copy resume command</button>
+  </nav>
+</header>
+<main class="plan">
+  <h1 class="session-title">{{.Title}}</h1>
+  <div class="meta muted">
+    <span class="slug">{{.ID}}</span>
+    {{- if .Project}}<span>{{.Project}}</span>{{end}}
+    {{- if .Branch}}<span>{{.Branch}}</span>{{end}}
+    <span>Created <time datetime="{{.Created.Format "2006-01-02T15:04:05Z07:00"}}">{{.Created.Format "2006-01-02 15:04"}}</time></span>
+    <span>Updated <time datetime="{{.Updated.Format "2006-01-02T15:04:05Z07:00"}}">{{.Updated.Format "2006-01-02 15:04"}}</time></span>
+    <span>{{.Messages}} message{{if ne .Messages 1}}s{{end}}</span>
+  </div>
+  <pre class="raw resume"><code id="resume">{{.Resume}}</code></pre>
+  <article id="rendered-view" class="markdown transcript">
+    {{- range .Turns}}
+    <h2>{{.Who}} <time datetime="{{.At.Format "2006-01-02T15:04:05Z07:00"}}">{{.At.Format "2006-01-02 15:04"}}</time></h2>
+    {{.HTML}}
+    {{- end}}
+  </article>
+</main>
+</body>
+</html>

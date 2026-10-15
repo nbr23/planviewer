@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func writeRecord(ts, cwd, filePath string) string {
@@ -104,5 +109,166 @@ func TestTranscriptIndexThrottle(t *testing.T) {
 	idx.Refresh()
 	if _, ok := idx.Lookup("one.md"); ok {
 		t.Fatal("refresh was not throttled")
+	}
+}
+
+func jsonLine(rec map[string]any) string {
+	b, _ := json.Marshal(rec)
+	return string(b) + "\n"
+}
+
+func userLine(ts, text string) string {
+	return jsonLine(map[string]any{
+		"type": "user", "timestamp": ts, "cwd": "/home/u/dev/app", "gitBranch": "main",
+		"message": map[string]any{"role": "user", "content": text},
+	})
+}
+
+func assistantLine(ts, blockType, text string) string {
+	return jsonLine(map[string]any{
+		"type": "assistant", "timestamp": ts, "cwd": "/home/u/dev/app", "gitBranch": "feature",
+		"message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": blockType, blockType: text}}},
+	})
+}
+
+func TestSessionIndex(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "-home-u-dev-app")
+	subDir := filepath.Join(proj, "sess-1", "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	session := filepath.Join(proj, "sess-1.jsonl")
+	appendFile(t, session, strings.Join([]string{
+		userLine("2026-09-01T10:00:00Z", "<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"),
+		userLine("2026-09-01T10:00:01Z", "<local-command-caveat>Caveat: ignore</local-command-caveat>"),
+		userLine("2026-09-01T10:00:02Z", "<command-name>/plan</command-name>\n<command-message>plan</command-message>\n<command-args>vacuum the persian rugs</command-args>"),
+		jsonLine(map[string]any{"type": "ai-title", "aiTitle": "Rug vacuuming"}),
+		assistantLine("2026-09-01T10:00:03Z", "thinking", "secret reasoning"),
+		assistantLine("2026-09-01T10:00:04Z", "text", "The fringe catches on the brush roll."),
+		assistantLine("2026-09-01T10:00:05Z", "text", "Lower the suction."),
+		jsonLine(map[string]any{
+			"type": "user", "timestamp": "2026-09-01T10:00:06Z",
+			"message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "tool_use_id": "x", "content": "tool output"}}},
+		}),
+		jsonLine(map[string]any{"type": "user", "isSidechain": true, "timestamp": "2026-09-01T10:00:07Z", "message": map[string]any{"content": "sidechain prompt"}}),
+		jsonLine(map[string]any{"type": "user", "isMeta": true, "timestamp": "2026-09-01T10:00:08Z", "message": map[string]any{"content": "meta prompt"}}),
+		userLine("2026-09-01T10:00:09Z", "thanks<system-reminder>hidden reminder</system-reminder>"),
+		jsonLine(map[string]any{"type": "custom-title", "customTitle": "Persian rugs"}),
+	}, ""))
+	appendFile(t, filepath.Join(subDir, "agent-1.jsonl"), userLine("2026-09-01T10:00:00Z", "subagent prompt"))
+
+	idx := NewTranscriptIndex(root, 0)
+	idx.Refresh()
+
+	sessions := idx.Sessions()
+	if len(sessions) != 1 {
+		t.Fatalf("Sessions() = %+v, want 1", sessions)
+	}
+	s := sessions[0]
+	if s.ID != "sess-1" || s.Title != "Persian rugs" || s.Project != "app" || s.Cwd != "/home/u/dev/app" || s.Branch != "main" || s.Messages != 3 {
+		t.Fatalf("session = %+v", s)
+	}
+	if !s.Created.Equal(time.Date(2026, 9, 1, 10, 0, 2, 0, time.UTC)) || !s.Updated.Equal(time.Date(2026, 9, 1, 10, 0, 9, 0, time.UTC)) {
+		t.Fatalf("created=%s updated=%s", s.Created, s.Updated)
+	}
+
+	full, ok := idx.Session("sess-1")
+	if !ok {
+		t.Fatal("Session(sess-1) not found")
+	}
+	want := []string{"/plan vacuum the persian rugs", "The fringe catches on the brush roll.\n\nLower the suction.", "thanks"}
+	var got []string
+	for _, tr := range full.turns {
+		got = append(got, tr.text)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("turns = %q, want %q", got, want)
+	}
+	for _, hidden := range []string{"secret reasoning", "tool output", "sidechain", "meta prompt", "hidden reminder", "Caveat", "subagent"} {
+		if bytes.Contains(full.body, []byte(hidden)) {
+			t.Errorf("body contains %q", hidden)
+		}
+	}
+
+	appendFile(t, session, assistantLine("2026-09-01T11:00:00Z", "text", "You're welcome."))
+	idx.Refresh()
+	if s, _ := idx.Session("sess-1"); s.Messages != 4 || len(full.turns) != 3 {
+		t.Fatalf("after append: messages=%d, earlier snapshot turns=%d", s.Messages, len(full.turns))
+	}
+
+	os.Remove(session)
+	idx.Refresh()
+	if ss := idx.Sessions(); len(ss) != 0 {
+		t.Fatalf("deleted session still listed: %+v", ss)
+	}
+}
+
+func TestSessionTitleFallback(t *testing.T) {
+	b := &sessionBuilder{id: "s"}
+	long := strings.Repeat("word ", 30)
+	b.add(&transcriptRecord{Type: "user", Message: struct {
+		Content json.RawMessage `json:"content"`
+	}{Content: json.RawMessage(strconv.Quote("  first\n\n" + long))}})
+	title := b.snapshot(false).Title
+	if !strings.HasPrefix(title, "first word") || !strings.HasSuffix(title, "…") || utf8.RuneCountInString(title) != titleMaxLen+1 {
+		t.Fatalf("title = %q", title)
+	}
+}
+
+func TestPromptText(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"plain prompt", "plain prompt"},
+		{"<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>", ""},
+		{"<command-message>plan</command-message>\n<command-name>/plan</command-name>\n<command-args>do it</command-args>", "/plan do it"},
+		{"<local-command-stdout>output</local-command-stdout>", ""},
+		{"before<system-reminder>a\nb</system-reminder> after", "before after"},
+		{"[Request interrupted by user for tool use]", ""},
+	}
+	for _, tt := range tests {
+		if got := promptText(tt.in); got != tt.want {
+			t.Errorf("promptText(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestResumeCommand(t *testing.T) {
+	tests := []struct {
+		s    Session
+		want string
+	}{
+		{Session{ID: "abc-1", Cwd: "/home/u/dev/app"}, "cd /home/u/dev/app && claude --resume abc-1"},
+		{Session{ID: "abc-1", Cwd: "/home/u/my app's"}, `cd '/home/u/my app'\''s' && claude --resume abc-1`},
+		{Session{ID: "abc-1"}, "claude --resume abc-1"},
+	}
+	for _, tt := range tests {
+		if got := tt.s.resumeCommand(); got != tt.want {
+			t.Errorf("resumeCommand(%+v) = %q, want %q", tt.s, got, tt.want)
+		}
+	}
+}
+
+func TestFilterSessions(t *testing.T) {
+	sessions := func() []Session {
+		return []Session{
+			{ID: "s1", Title: "Persian rugs", Project: "vacuum", body: []byte("The fringe catches on the BRUSH roll.")},
+			{ID: "s2", Title: "Live feed", Branch: "goodreads-rss", body: []byte("nothing")},
+		}
+	}
+	tests := []struct {
+		q       string
+		want    string
+		snippet bool
+	}{
+		{"brush", "s1", true},
+		{"goodreads", "s2", false},
+		{"vacuum fringe", "s1", true},
+		{"s2", "s2", false},
+	}
+	for _, tt := range tests {
+		got := filterSessions(sessions(), parseQuery(tt.q))
+		if len(got) != 1 || got[0].ID != tt.want || (got[0].Snippet != "") != tt.snippet {
+			t.Errorf("q=%q got %+v, want %s snippet=%v", tt.q, got, tt.want, tt.snippet)
+		}
 	}
 }

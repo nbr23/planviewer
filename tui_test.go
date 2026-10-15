@@ -103,8 +103,8 @@ func typeText(s string) tea.Msg {
 
 func shownNames(m model) []string {
 	var names []string
-	for _, p := range m.shown {
-		names = append(names, p.Name)
+	for _, it := range m.shown {
+		names = append(names, it.itemKey())
 	}
 	return names
 }
@@ -126,18 +126,18 @@ func TestModelSearchOpenAndBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := update(t, newModel(store, false, "notty"),
+	m := update(t, newModel(store, nil, "notty"),
 		tea.WindowSizeMsg{Width: 100, Height: 30},
-		plansMsg{plans: plans})
+		loadedMsg{plans: plans})
 	if len(m.shown) != 3 {
 		t.Fatalf("shown = %v, want 3 plans", shownNames(m))
 	}
 
 	m = update(t, m, typeText("brush"))
-	if got := shownNames(m); !slices.Equal(got, []string{"rugs.md"}) || m.shown[0].Snippet == "" {
-		t.Fatalf("after search shown = %v snippet=%q", got, m.shown[0].Snippet)
+	if got := shownNames(m); !slices.Equal(got, []string{"rugs.md"}) || m.shown[0].itemSnippet() == "" {
+		t.Fatalf("after search shown = %v snippet=%q", got, m.shown[0].itemSnippet())
 	}
-	for _, p := range m.all {
+	for _, p := range m.plans {
 		if p.Snippet != "" {
 			t.Fatalf("search mutated all: %s snippet=%q", p.Name, p.Snippet)
 		}
@@ -147,7 +147,7 @@ func TestModelSearchOpenAndBack(t *testing.T) {
 	}
 
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.screen != planScreen {
+	if m.screen != pagerScreen {
 		t.Fatal("enter did not open the plan")
 	}
 	if v := m.View(); !strings.Contains(v, "Persian rugs") || !strings.Contains(v, "match 1/1") {
@@ -165,5 +165,88 @@ func TestModelSearchOpenAndBack(t *testing.T) {
 	}
 	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil || cmd() != tea.Quit() {
 		t.Fatal("esc on empty query did not quit")
+	}
+}
+
+func TestSortSessions(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	sessions := []Session{
+		{ID: "a", Title: "beta", Messages: 3, Updated: base.Add(time.Hour)},
+		{ID: "b", Title: "Alpha", Messages: 9, Updated: base},
+		{ID: "c", Title: "gamma", Messages: 1, Updated: base.Add(2 * time.Hour)},
+	}
+	tests := []struct {
+		key  string
+		desc bool
+		want []string
+	}{
+		{"updated", true, []string{"c", "a", "b"}},
+		{"title", false, []string{"b", "a", "c"}},
+		{"messages", true, []string{"b", "a", "c"}},
+	}
+	for _, tt := range tests {
+		got := slices.Clone(sessions)
+		sortSessions(got, tt.key, tt.desc)
+		var ids []string
+		for _, s := range got {
+			ids = append(ids, s.ID)
+		}
+		if !slices.Equal(ids, tt.want) {
+			t.Errorf("sortSessions(%s, desc=%v) = %v, want %v", tt.key, tt.desc, ids, tt.want)
+		}
+	}
+}
+
+func TestModelSessionsSearchOpenAndResume(t *testing.T) {
+	plansDir, root := t.TempDir(), t.TempDir()
+	proj := filepath.Join(root, "-home-u-dev-app")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, filepath.Join(proj, "sess-1.jsonl"),
+		userLine("2026-09-01T10:00:00Z", "why does the vacuum stall?")+
+			assistantLine("2026-09-01T10:00:01Z", "text", "The fringe tangles around the brushroll.")+
+			jsonLine(map[string]any{"type": "ai-title", "aiTitle": "Vacuum stalls"}))
+	appendFile(t, filepath.Join(proj, "sess-2.jsonl"), userLine("2026-09-02T10:00:00Z", "unrelated"))
+
+	idx := NewTranscriptIndex(root, 0)
+	store := NewStore(plansDir, idx)
+	m := newModel(store, idx, "notty")
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30}, m.load()())
+	if len(m.shown) != 0 || m.mode != plansMode {
+		t.Fatalf("plans mode shown = %v", shownNames(m))
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyCtrlT})
+	if m.mode != sessionsMode || len(m.shown) != 2 || !strings.Contains(m.View(), "2 sessions") {
+		t.Fatalf("after ctrl+t mode=%v shown=%v\n%s", m.mode, shownNames(m), m.View())
+	}
+
+	m = update(t, m, typeText("brushroll"))
+	if got := shownNames(m); !slices.Equal(got, []string{"sess-1"}) || m.shown[0].itemSnippet() == "" {
+		t.Fatalf("after search shown = %v", got)
+	}
+	if v := m.View(); !strings.Contains(v, "Vacuum stalls") || !strings.Contains(v, "1 of 2 sessions") {
+		t.Fatalf("list view:\n%s", v)
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if v := m.View(); m.screen != pagerScreen || !strings.Contains(v, "match 1/1") || !strings.Contains(v, "r resume") {
+		t.Fatalf("session view:\n%s", v)
+	}
+
+	next, cmd := m.Update(typeText("r"))
+	m = next.(model)
+	if cmd == nil || cmd() != tea.Quit() || m.resume != "cd /home/u/dev/app && claude --resume sess-1" {
+		t.Fatalf("r: resume=%q", m.resume)
+	}
+}
+
+func TestModelToggleWithoutTranscripts(t *testing.T) {
+	m := update(t, newModel(NewStore(t.TempDir(), nil), nil, "notty"),
+		tea.WindowSizeMsg{Width: 100, Height: 30},
+		tea.KeyMsg{Type: tea.KeyCtrlT})
+	if m.mode != plansMode || m.status == "" {
+		t.Fatalf("ctrl+t without transcripts: mode=%v status=%q", m.mode, m.status)
 	}
 }

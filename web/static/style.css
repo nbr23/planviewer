@@ -57,6 +57,10 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; }
 .bar h1 { margin: 0; font-size: 18px; }
 .bar h1 a { color: var(--fg); }
 
+.modes { display: flex; gap: 14px; font-size: 18px; font-weight: 700; }
+.modes a { color: var(--muted); }
+.modes a[aria-current="page"] { color: var(--fg); }
+
 #q {
   flex: 1;
   max-width: 560px;
@@ -148,6 +152,10 @@ th.col-size { text-align: right; }
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+
+.session-title { margin: 0 0 6px; font-size: 1.6em; }
+.resume { margin-bottom: 24px; }
+.transcript h2 time { margin-left: 8px; font-size: 13px; font-weight: normal; color: var(--muted); }
 
 .markdown { overflow-wrap: break-word; }
 .markdown h1, .markdown h2 { padding-bottom: 0.3em; border-bottom: 1px solid var(--border); }

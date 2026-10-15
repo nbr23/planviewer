@@ -21,8 +21,7 @@ const (
 )
 
 var (
-	sortKeys    = []string{"updated", "created", "title", "project", "size"}
-	defaultDesc = map[string]bool{"updated": true, "created": true, "size": true}
+	defaultDesc = map[string]bool{"updated": true, "created": true, "size": true, "messages": true}
 
 	accent        = lipgloss.AdaptiveColor{Light: "#5A56E0", Dark: "#8B87FF"}
 	mutedStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#7A7A7A", Dark: "#8A8A8A"})
@@ -38,18 +37,53 @@ type screen int
 
 const (
 	listScreen screen = iota
-	planScreen
+	pagerScreen
 )
 
-type plansMsg struct {
-	plans []Plan
-	err   error
+type listMode int
+
+const (
+	plansMode listMode = iota
+	sessionsMode
+)
+
+type listKind struct {
+	noun        string
+	placeholder string
+	sortKeys    []string
+}
+
+var listKinds = [...]listKind{
+	plansMode:    {"plans", "Search titles and content", []string{"updated", "created", "title", "project", "size"}},
+	sessionsMode: {"sessions", "Search session titles and conversations", []string{"updated", "created", "title", "project", "messages"}},
+}
+
+type sortState struct {
+	key  int
+	desc bool
+}
+
+type listItem interface {
+	itemKey() string
+	itemTitle() string
+	itemMeta(q query, now time.Time) []string
+	itemSnippet() string
+}
+
+type loadedMsg struct {
+	plans    []Plan
+	sessions []Session
+	err      error
 }
 
 type model struct {
 	store         *Store
-	transcripts   bool
-	all, shown    []Plan
+	index         *TranscriptIndex
+	plans         []Plan
+	sessions      []Session
+	shown         []listItem
+	mode          listMode
+	sorts         [len(listKinds)]sortState
 	loaded        bool
 	err           error
 	status        string
@@ -57,14 +91,14 @@ type model struct {
 	q             query
 	cursor        int
 	offset        int
-	sortKey       int
-	desc          bool
 	width, height int
 	screen        screen
 	pager         pager
+	openResume    string
+	resume        string
 }
 
-func runProgram(store *Store, transcripts bool) error {
+func runProgram(store *Store, index *TranscriptIndex) error {
 	style := os.Getenv("GLAMOUR_STYLE")
 	if style == "" {
 		style = "light"
@@ -75,23 +109,43 @@ func runProgram(store *Store, transcripts bool) error {
 	if _, err := glamour.NewTermRenderer(glamour.WithStylePath(style)); err != nil {
 		return fmt.Errorf("markdown style %q: %w", style, err)
 	}
-	_, err := tea.NewProgram(newModel(store, transcripts, style), tea.WithAltScreen()).Run()
-	return err
+	final, err := tea.NewProgram(newModel(store, index, style), tea.WithAltScreen()).Run()
+	if err != nil {
+		return err
+	}
+	if m, ok := final.(model); ok && m.resume != "" {
+		fmt.Println(m.resume)
+	}
+	return nil
 }
 
-func newModel(store *Store, transcripts bool, style string) model {
+func newModel(store *Store, index *TranscriptIndex, style string) model {
 	in := textinput.New()
 	in.Prompt = "> "
 	in.PromptStyle = barStyle
-	in.Placeholder = "Search titles and content"
+	in.Placeholder = listKinds[plansMode].placeholder
 	in.Focus()
-	return model{
-		store:       store,
-		transcripts: transcripts,
-		input:       in,
-		desc:        true,
-		pager:       newPager(style),
+	m := model{
+		store: store,
+		index: index,
+		input: in,
+		pager: newPager(style),
 	}
+	for i := range m.sorts {
+		m.sorts[i].desc = true
+	}
+	return m
+}
+
+func (m model) kind() listKind {
+	return listKinds[m.mode]
+}
+
+func (m model) total() int {
+	if m.mode == sessionsMode {
+		return len(m.sessions)
+	}
+	return len(m.plans)
 }
 
 func (m model) Init() tea.Cmd {
@@ -99,10 +153,15 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) load() tea.Cmd {
-	store := m.store
+	store, index := m.store, m.index
 	return func() tea.Msg {
 		plans, err := store.List()
-		return plansMsg{plans, err}
+		var sessions []Session
+		if index != nil {
+			index.Refresh()
+			sessions = index.Sessions()
+		}
+		return loadedMsg{plans, sessions, err}
 	}
 }
 
@@ -113,33 +172,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pager.setSize(msg.Width, msg.Height)
 		m.fixOffset()
 		return m, nil
-	case plansMsg:
+	case loadedMsg:
 		m.loaded = true
 		m.err = msg.err
+		name := m.selectedName()
 		if msg.err == nil {
-			name := m.selectedName()
-			m.all = msg.plans
-			m.refilter()
-			m.reselect(name)
+			m.plans = msg.plans
 		}
+		m.sessions = msg.sessions
+		m.refilter()
+		m.reselect(name)
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 	}
-	if m.screen == planScreen {
-		return m.updatePlan(msg)
+	if m.screen == pagerScreen {
+		return m.updatePager(msg)
 	}
 	return m.updateList(msg)
 }
 
-func (m model) updatePlan(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m model) updatePager(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok && k.String() == "r" && m.openResume != "" && m.pager.idle() {
+		m.resume = m.openResume
+		return m, tea.Quit
+	}
 	var cmd tea.Cmd
 	var back bool
 	m.pager, cmd, back = m.pager.Update(msg)
 	if back {
 		m.screen = listScreen
+		m.openResume = ""
 		return m, m.load()
 	}
 	return m, cmd
@@ -164,13 +229,17 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m.open()
 		case "tab":
-			m.sortKey = (m.sortKey + 1) % len(sortKeys)
-			m.desc = defaultDesc[sortKeys[m.sortKey]]
+			st := &m.sorts[m.mode]
+			st.key = (st.key + 1) % len(m.kind().sortKeys)
+			st.desc = defaultDesc[m.kind().sortKeys[st.key]]
 			m.resort()
 			return m, nil
 		case "shift+tab":
-			m.desc = !m.desc
+			m.sorts[m.mode].desc = !m.sorts[m.mode].desc
 			m.resort()
+			return m, nil
+		case "ctrl+t":
+			m.toggleMode()
 			return m, nil
 		case "ctrl+r":
 			return m, m.load()
@@ -193,18 +262,70 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) open() (tea.Model, tea.Cmd) {
-	name := m.selectedName()
-	if name == "" {
+	key := m.selectedName()
+	if key == "" {
 		return m, nil
 	}
-	p, err := m.store.Get(name)
+	doc, resume, err := m.document(key)
 	if err != nil {
-		m.status = fmt.Sprintf("cannot open %s: %v", name, err)
+		m.status = fmt.Sprintf("cannot open %s: %v", key, err)
 		return m, m.load()
 	}
-	m.pager.open(p, m.q.terms)
-	m.screen = planScreen
+	m.pager.open(doc, m.q.terms)
+	m.openResume = resume
+	m.screen = pagerScreen
 	return m, nil
+}
+
+func (m model) document(key string) (document, string, error) {
+	now := time.Now()
+	if m.mode == sessionsMode {
+		m.index.Refresh()
+		s, ok := m.index.Session(key)
+		if !ok {
+			return document{}, "", errSessionNotFound
+		}
+		return sessionDocument(s, now), s.resumeCommand(), nil
+	}
+	p, err := m.store.Get(key)
+	if err != nil {
+		return document{}, "", err
+	}
+	return planDocument(p, now), "", nil
+}
+
+func planDocument(p Plan, now time.Time) document {
+	meta := []string{p.Name}
+	if p.Project != "" {
+		meta = append(meta, p.Project)
+	}
+	meta = append(meta, "created "+p.createdLabel(now), "updated "+relativeTime(p.Updated, now))
+	return document{name: p.Name, title: p.Title, meta: meta, body: p.body, updated: p.Updated}
+}
+
+func sessionDocument(s Session, now time.Time) document {
+	var meta []string
+	for _, f := range []string{s.Project, s.Branch} {
+		if f != "" {
+			meta = append(meta, f)
+		}
+	}
+	meta = append(meta,
+		"created "+relativeTime(s.Created, now),
+		"updated "+relativeTime(s.Updated, now),
+		messageCount(s.Messages))
+	return document{name: s.ID, title: s.Title, meta: meta, body: s.markdown(), updated: s.Updated, hint: "r resume"}
+}
+
+func (m *model) toggleMode() {
+	if m.index == nil {
+		m.status = "no transcripts directory, sessions unavailable"
+		return
+	}
+	m.mode = (m.mode + 1) % listMode(len(listKinds))
+	m.input.Placeholder = m.kind().placeholder
+	m.cursor, m.offset = 0, 0
+	m.refilter()
 }
 
 func (m *model) setQuery() {
@@ -220,15 +341,33 @@ func (m *model) resort() {
 }
 
 func (m *model) refilter() {
-	m.shown = filterPlans(slices.Clone(m.all), m.q)
-	sortPlans(m.shown, sortKeys[m.sortKey], m.desc)
+	st := m.sorts[m.mode]
+	key := m.kind().sortKeys[st.key]
+	switch m.mode {
+	case sessionsMode:
+		ss := filterSessions(slices.Clone(m.sessions), m.q)
+		sortSessions(ss, key, st.desc)
+		m.shown = listItems(ss)
+	default:
+		ps := filterPlans(slices.Clone(m.plans), m.q)
+		sortPlans(ps, key, st.desc)
+		m.shown = listItems(ps)
+	}
 	m.cursor = min(m.cursor, max(len(m.shown)-1, 0))
 	m.fixOffset()
 }
 
+func listItems[T listItem](xs []T) []listItem {
+	out := make([]listItem, len(xs))
+	for i, x := range xs {
+		out[i] = x
+	}
+	return out
+}
+
 func (m *model) reselect(name string) {
 	for i := range m.shown {
-		if m.shown[i].Name == name {
+		if m.shown[i].itemKey() == name {
 			m.cursor = i
 			m.fixOffset()
 			return
@@ -238,7 +377,7 @@ func (m *model) reselect(name string) {
 
 func (m model) selectedName() string {
 	if m.cursor < len(m.shown) {
-		return m.shown[m.cursor].Name
+		return m.shown[m.cursor].itemKey()
 	}
 	return ""
 }
@@ -259,8 +398,8 @@ func (m model) pageSize() int {
 	return max(1, m.listHeight()/3)
 }
 
-func itemHeight(p *Plan) int {
-	if p.Snippet != "" {
+func itemHeight(it listItem) int {
+	if it.itemSnippet() != "" {
 		return 4
 	}
 	return 3
@@ -271,7 +410,7 @@ func (m *model) fixOffset() {
 	for m.offset < m.cursor {
 		h := 0
 		for i := m.offset; i <= m.cursor; i++ {
-			h += itemHeight(&m.shown[i])
+			h += itemHeight(m.shown[i])
 		}
 		if h <= m.listHeight()+1 {
 			return
@@ -284,7 +423,7 @@ func (m model) View() string {
 	if m.width == 0 {
 		return ""
 	}
-	if m.screen == planScreen {
+	if m.screen == pagerScreen {
 		return m.pager.View()
 	}
 	return m.listView()
@@ -308,15 +447,16 @@ func (m model) listView() string {
 }
 
 func (m model) headerView() string {
-	count := fmt.Sprintf("%d plans", len(m.all))
-	if len(m.shown) != len(m.all) {
-		count = fmt.Sprintf("%d of %d", len(m.shown), len(m.all))
+	count := fmt.Sprintf("%d %s", m.total(), m.kind().noun)
+	if len(m.shown) != m.total() {
+		count = fmt.Sprintf("%d of %d %s", len(m.shown), m.total(), m.kind().noun)
 	}
+	st := m.sorts[m.mode]
 	arrow := "↑"
-	if m.desc {
+	if st.desc {
 		arrow = "↓"
 	}
-	right := mutedStyle.Render(fmt.Sprintf("%s · %s %s", count, sortKeys[m.sortKey], arrow))
+	right := mutedStyle.Render(fmt.Sprintf("%s · %s %s", count, m.kind().sortKeys[st.key], arrow))
 	in := m.input
 	in.Width = max(10, m.width-lipgloss.Width(right)-len(in.Prompt)-2)
 	left := in.View()
@@ -328,51 +468,82 @@ func (m model) footerView() string {
 	if m.status != "" {
 		return errorStyle.Render(m.status)
 	}
-	return mutedStyle.Render("↑/↓ move · enter open · tab sort · shift+tab reverse · ctrl+r reload · esc clear/quit")
+	toggle := ""
+	if m.index != nil {
+		toggle = " · ctrl+t " + listKinds[(m.mode+1)%listMode(len(listKinds))].noun
+	}
+	return mutedStyle.Render("↑/↓ move · enter open · tab sort · shift+tab reverse" + toggle + " · ctrl+r reload · esc clear/quit")
 }
 
 func (m model) bodyLines() []string {
 	switch {
-	case m.err != nil:
+	case m.err != nil && m.mode == plansMode:
 		return []string{errorStyle.Render("Cannot read plans: " + m.err.Error())}
 	case !m.loaded:
-		return []string{mutedStyle.Render("Loading plans…")}
+		return []string{mutedStyle.Render("Loading " + m.kind().noun + "…")}
 	case len(m.shown) == 0:
-		return []string{mutedStyle.Render("No plans match.")}
+		return []string{mutedStyle.Render("No " + m.kind().noun + " match.")}
 	}
 	var lines []string
 	now := time.Now()
 	for i := m.offset; i < len(m.shown) && len(lines) < m.listHeight(); i++ {
-		lines = append(lines, m.itemLines(&m.shown[i], i == m.cursor, now)...)
+		lines = append(lines, m.itemLines(m.shown[i], i == m.cursor, now)...)
 	}
 	return lines
 }
 
-func (m model) itemLines(p *Plan, selected bool, now time.Time) []string {
+func (m model) itemLines(it listItem, selected bool, now time.Time) []string {
 	bar, title := "  ", titleStyle
 	if selected {
 		bar, title = barStyle.Render("▌ "), selectedStyle
 	}
-	meta := []string{m.q.highlight(p.Name, mutedStyle)}
-	if m.transcripts && p.Project != "" {
-		meta = append(meta, m.q.highlight(p.Project, mutedStyle))
-	}
-	created := relativeTime(p.Created, now)
-	if !p.CreatedExact {
-		created = "~" + created
-	}
-	meta = append(meta,
-		mutedStyle.Render("created "+created),
-		mutedStyle.Render("updated "+relativeTime(p.Updated, now)),
-		mutedStyle.Render(formatSize(p.Size)))
 	lines := []string{
-		bar + m.q.highlight(p.Title, title),
-		bar + strings.Join(meta, mutedStyle.Render(" · ")),
+		bar + m.q.highlight(it.itemTitle(), title),
+		bar + strings.Join(it.itemMeta(m.q, now), mutedStyle.Render(" · ")),
 	}
-	if p.Snippet != "" {
-		lines = append(lines, bar+m.q.highlight(p.Snippet, plainStyle))
+	if s := it.itemSnippet(); s != "" {
+		lines = append(lines, bar+m.q.highlight(s, plainStyle))
 	}
 	return append(lines, "")
+}
+
+func (p Plan) itemKey() string     { return p.Name }
+func (p Plan) itemTitle() string   { return p.Title }
+func (p Plan) itemSnippet() string { return p.Snippet }
+
+func (p Plan) itemMeta(q query, now time.Time) []string {
+	meta := []string{q.highlight(p.Name, mutedStyle)}
+	if p.Project != "" {
+		meta = append(meta, q.highlight(p.Project, mutedStyle))
+	}
+	return append(meta,
+		mutedStyle.Render("created "+p.createdLabel(now)),
+		mutedStyle.Render("updated "+relativeTime(p.Updated, now)),
+		mutedStyle.Render(formatSize(p.Size)))
+}
+
+func (p Plan) createdLabel(now time.Time) string {
+	if p.CreatedExact {
+		return relativeTime(p.Created, now)
+	}
+	return "~" + relativeTime(p.Created, now)
+}
+
+func (s Session) itemKey() string     { return s.ID }
+func (s Session) itemTitle() string   { return s.Title }
+func (s Session) itemSnippet() string { return s.Snippet }
+
+func (s Session) itemMeta(q query, now time.Time) []string {
+	var meta []string
+	for _, f := range []string{s.Project, s.Branch} {
+		if f != "" {
+			meta = append(meta, q.highlight(f, mutedStyle))
+		}
+	}
+	return append(meta,
+		mutedStyle.Render("created "+relativeTime(s.Created, now)),
+		mutedStyle.Render("updated "+relativeTime(s.Updated, now)),
+		mutedStyle.Render(messageCount(s.Messages)))
 }
 
 func (q query) highlight(s string, base lipgloss.Style) string {
@@ -401,29 +572,45 @@ func (q query) highlight(s string, base lipgloss.Style) string {
 	return b.String()
 }
 
+type sortFields struct {
+	title, project   string
+	created, updated time.Time
+	count            int64
+}
+
+func compareFields(a, b sortFields, key string, desc bool) int {
+	var r int
+	switch key {
+	case "title":
+		r = strings.Compare(strings.ToLower(a.title), strings.ToLower(b.title))
+	case "project":
+		r = strings.Compare(strings.ToLower(a.project), strings.ToLower(b.project))
+	case "size", "messages":
+		r = cmp.Compare(a.count, b.count)
+	case "created":
+		r = a.created.Compare(b.created)
+	default:
+		r = a.updated.Compare(b.updated)
+	}
+	if desc {
+		r = -r
+	}
+	if r != 0 {
+		return r
+	}
+	return b.updated.Compare(a.updated)
+}
+
 func sortPlans(plans []Plan, key string, desc bool) {
-	slices.SortStableFunc(plans, func(a, b Plan) int {
-		var r int
-		switch key {
-		case "title":
-			r = strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
-		case "project":
-			r = strings.Compare(strings.ToLower(a.Project), strings.ToLower(b.Project))
-		case "size":
-			r = cmp.Compare(a.Size, b.Size)
-		case "created":
-			r = a.Created.Compare(b.Created)
-		default:
-			r = a.Updated.Compare(b.Updated)
-		}
-		if desc {
-			r = -r
-		}
-		if r != 0 {
-			return r
-		}
-		return b.Updated.Compare(a.Updated)
-	})
+	fields := func(p Plan) sortFields { return sortFields{p.Title, p.Project, p.Created, p.Updated, p.Size} }
+	slices.SortStableFunc(plans, func(a, b Plan) int { return compareFields(fields(a), fields(b), key, desc) })
+}
+
+func sortSessions(sessions []Session, key string, desc bool) {
+	fields := func(s Session) sortFields {
+		return sortFields{s.Title, s.Project, s.Created, s.Updated, int64(s.Messages)}
+	}
+	slices.SortStableFunc(sessions, func(a, b Session) int { return compareFields(fields(a), fields(b), key, desc) })
 }
 
 func relativeTime(t, now time.Time) string {
@@ -443,6 +630,13 @@ func relativeTime(t, now time.Time) string {
 		return t.Format("Jan 2")
 	}
 	return t.Format("Jan 2, 2006")
+}
+
+func messageCount(n int) string {
+	if n == 1 {
+		return "1 message"
+	}
+	return fmt.Sprintf("%d messages", n)
 }
 
 func formatSize(n int64) string {

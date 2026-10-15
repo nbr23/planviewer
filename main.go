@@ -91,19 +91,19 @@ func runServe(args []string) {
 		log.Fatalf("plans directory %q not found", plansDir)
 	}
 
-	var origins *TranscriptIndex
+	var index *TranscriptIndex
 	if isDir(projectsDir) {
-		origins = NewTranscriptIndex(projectsDir, 15*time.Second)
+		index = NewTranscriptIndex(projectsDir, 15*time.Second)
 		go func() {
 			start := time.Now()
-			origins.Refresh()
+			index.Refresh()
 			log.Printf("indexed transcripts in %s in %s", projectsDir, time.Since(start).Round(time.Millisecond))
 		}()
 	} else {
-		log.Printf("no transcripts directory at %q; created dates fall back to modification time", projectsDir)
+		log.Printf("no transcripts directory at %q; created dates fall back to modification time and sessions are unavailable", projectsDir)
 	}
 
-	srv, err := NewServer(NewStore(plansDir, origins), origins != nil)
+	srv, err := NewServer(NewStore(plansDir, index), index)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -125,9 +125,9 @@ func runTUI(args []string) error {
 	if !isDir(plansDir) {
 		return fmt.Errorf("plans directory %q not found", plansDir)
 	}
-	var origins *TranscriptIndex
+	var index *TranscriptIndex
 	if isDir(projectsDir) {
-		origins = NewTranscriptIndex(projectsDir, 15*time.Second)
+		index = NewTranscriptIndex(projectsDir, 15*time.Second)
 	}
-	return runProgram(NewStore(plansDir, origins), origins != nil)
+	return runProgram(NewStore(plansDir, index), index)
 }

@@ -55,7 +55,7 @@ func testPager(t *testing.T, items int, terms string) pager {
 	b.WriteString("\n- needle at the end\n")
 	p := newPager("notty")
 	p.setSize(80, 20)
-	p.open(Plan{Name: "a.md", Title: "Title", body: []byte(b.String())}, parseQuery(terms).terms)
+	p.open(document{name: "a.md", title: "Title", body: []byte(b.String())}, parseQuery(terms).terms)
 	return p
 }
 

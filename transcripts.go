@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +21,9 @@ type Origin struct {
 }
 
 type transcriptFile struct {
-	info   fs.FileInfo
-	offset int64
+	info    fs.FileInfo
+	offset  int64
+	session *sessionBuilder
 }
 
 type TranscriptIndex struct {
@@ -31,12 +33,20 @@ type TranscriptIndex struct {
 	last     time.Time
 	files    map[string]*transcriptFile
 	origins  map[string]Origin
+	sessions map[string]*sessionBuilder
 }
 
 type transcriptRecord struct {
-	Timestamp time.Time `json:"timestamp"`
-	Cwd       string    `json:"cwd"`
-	Message   struct {
+	Type             string    `json:"type"`
+	Timestamp        time.Time `json:"timestamp"`
+	Cwd              string    `json:"cwd"`
+	GitBranch        string    `json:"gitBranch"`
+	IsSidechain      bool      `json:"isSidechain"`
+	IsMeta           bool      `json:"isMeta"`
+	IsCompactSummary bool      `json:"isCompactSummary"`
+	AITitle          string    `json:"aiTitle"`
+	CustomTitle      string    `json:"customTitle"`
+	Message          struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 }
@@ -44,22 +54,29 @@ type transcriptRecord struct {
 type contentBlock struct {
 	Type  string `json:"type"`
 	Name  string `json:"name"`
+	Text  string `json:"text"`
 	Input struct {
 		FilePath string `json:"file_path"`
 	} `json:"input"`
 }
 
 var (
-	planPathMarker = []byte("/plans/")
-	writeMarker    = []byte(`"Write"`)
+	planPathMarker    = []byte("/plans/")
+	writeMarker       = []byte(`"Write"`)
+	userMarker        = []byte(`"type":"user"`)
+	toolResultMarker  = []byte(`"tool_use_id"`)
+	textMarker        = []byte(`"type":"text"`)
+	aiTitleMarker     = []byte(`"type":"ai-title"`)
+	customTitleMarker = []byte(`"type":"custom-title"`)
 )
 
 func NewTranscriptIndex(root string, interval time.Duration) *TranscriptIndex {
 	return &TranscriptIndex{
-		root:     root,
+		root:     filepath.Clean(root),
 		interval: interval,
 		files:    map[string]*transcriptFile{},
 		origins:  map[string]Origin{},
+		sessions: map[string]*sessionBuilder{},
 	}
 }
 
@@ -70,6 +87,29 @@ func (t *TranscriptIndex) Lookup(name string) (Origin, bool) {
 	return o, ok
 }
 
+func (t *TranscriptIndex) Sessions() []Session {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]Session, 0, len(t.sessions))
+	for _, b := range t.sessions {
+		if len(b.turns) > 0 {
+			out = append(out, b.snapshot(false))
+		}
+	}
+	slices.SortFunc(out, func(a, b Session) int { return b.Updated.Compare(a.Updated) })
+	return out
+}
+
+func (t *TranscriptIndex) Session(id string) (Session, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	b, ok := t.sessions[id]
+	if !ok || len(b.turns) == 0 {
+		return Session{}, false
+	}
+	return b.snapshot(true), true
+}
+
 func (t *TranscriptIndex) Refresh() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -77,6 +117,7 @@ func (t *TranscriptIndex) Refresh() {
 		return
 	}
 	t.last = time.Now()
+	seen := make(map[string]bool, len(t.files))
 	_ = filepath.WalkDir(t.root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !d.Type().IsRegular() || !strings.HasSuffix(p, ".jsonl") {
 			return nil
@@ -85,15 +126,34 @@ func (t *TranscriptIndex) Refresh() {
 		if err != nil {
 			return nil
 		}
+		seen[p] = true
 		t.scanFile(p, info)
 		return nil
 	})
+	for p, tf := range t.files {
+		if seen[p] {
+			continue
+		}
+		delete(t.files, p)
+		if tf.session != nil && t.sessions[tf.session.id] == tf.session {
+			delete(t.sessions, tf.session.id)
+		}
+	}
+}
+
+func (t *TranscriptIndex) newSession(p string) *sessionBuilder {
+	if filepath.Dir(filepath.Dir(p)) != t.root {
+		return nil
+	}
+	b := &sessionBuilder{id: strings.TrimSuffix(filepath.Base(p), ".jsonl")}
+	t.sessions[b.id] = b
+	return b
 }
 
 func (t *TranscriptIndex) scanFile(p string, info fs.FileInfo) {
 	tf, ok := t.files[p]
 	if !ok || !os.SameFile(tf.info, info) || info.Size() < tf.offset {
-		tf = &transcriptFile{}
+		tf = &transcriptFile{session: t.newSession(p)}
 		t.files[p] = tf
 	}
 	tf.info = info
@@ -116,16 +176,36 @@ func (t *TranscriptIndex) scanFile(p string, info fs.FileInfo) {
 			return
 		}
 		tf.offset += int64(len(line))
-		t.indexLine(line)
+		t.indexLine(line, tf.session)
 	}
 }
 
-func (t *TranscriptIndex) indexLine(line []byte) {
-	if !bytes.Contains(line, planPathMarker) || !bytes.Contains(line, writeMarker) {
+func (t *TranscriptIndex) indexLine(line []byte, session *sessionBuilder) {
+	origin := bytes.Contains(line, planPathMarker) && bytes.Contains(line, writeMarker)
+	if !origin && (session == nil || !sessionLine(line)) {
 		return
 	}
 	var rec transcriptRecord
-	if json.Unmarshal(line, &rec) != nil || rec.Timestamp.IsZero() {
+	if json.Unmarshal(line, &rec) != nil {
+		return
+	}
+	if origin {
+		t.indexOrigin(&rec)
+	}
+	if session != nil {
+		session.add(&rec)
+	}
+}
+
+func sessionLine(line []byte) bool {
+	if bytes.Contains(line, userMarker) {
+		return !bytes.Contains(line, toolResultMarker)
+	}
+	return bytes.Contains(line, textMarker) || bytes.Contains(line, aiTitleMarker) || bytes.Contains(line, customTitleMarker)
+}
+
+func (t *TranscriptIndex) indexOrigin(rec *transcriptRecord) {
+	if rec.Timestamp.IsZero() {
 		return
 	}
 	var blocks []contentBlock

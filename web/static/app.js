@@ -1,13 +1,31 @@
 "use strict";
 
-const defaultDir = { title: "asc", project: "asc", created: "desc", updated: "desc", size: "desc" };
+const kinds = {
+  plans: {
+    api: "/api/plans",
+    count: "size",
+    link: (p) => "/p/" + encodeURIComponent(p.name),
+    sub: (p) => p.name,
+    countText: (p) => formatSize(p.size),
+  },
+  sessions: {
+    api: "/api/sessions",
+    count: "messages",
+    link: (s) => "/s/" + encodeURIComponent(s.id),
+    sub: (s) => [s.branch, s.id].filter(Boolean).join(" · "),
+    countText: (s) => String(s.messages),
+  },
+};
+const noun = document.body.dataset.kind;
+const kind = kinds[noun];
+const defaultDir = { title: "asc", project: "asc", created: "desc", updated: "desc", [kind.count]: "desc" };
 const state = { q: "", sort: "updated", dir: "desc", selected: 0 };
-let data = { transcripts: false, total: 0, plans: [] };
+let data = { total: 0, items: [] };
 let requestSeq = 0;
 let debounce;
 
 const search = document.getElementById("q");
-const tbody = document.querySelector("#plans tbody");
+const tbody = document.querySelector("#items tbody");
 const count = document.getElementById("count");
 const empty = document.getElementById("empty");
 
@@ -62,36 +80,35 @@ function compare(a, b) {
   let r;
   if (k === "title" || k === "project") {
     r = (a[k] || "").localeCompare(b[k] || "", undefined, { sensitivity: "base", numeric: true });
-  } else if (k === "size") {
-    r = a.size - b.size;
+  } else if (k === kind.count) {
+    r = a[k] - b[k];
   } else {
     r = Date.parse(a[k]) - Date.parse(b[k]);
   }
   return (state.dir === "asc" ? r : -r) || Date.parse(b.updated) - Date.parse(a.updated);
 }
 
-function row(plan, index) {
+function row(item, index) {
   const title = el("td", { className: "col-title" },
-    el("a", { href: "/p/" + encodeURIComponent(plan.name) }, ...highlight(plan.title)),
-    el("div", { className: "slug" }, ...highlight(plan.name)));
-  if (plan.snippet) title.append(el("div", { className: "snippet" }, ...highlight(plan.snippet)));
+    el("a", { href: kind.link(item) }, ...highlight(item.title)),
+    el("div", { className: "slug" }, ...highlight(kind.sub(item))));
+  if (item.snippet) title.append(el("div", { className: "snippet" }, ...highlight(item.snippet)));
   const tr = el("tr", {},
     title,
-    el("td", { className: "col-project" }, ...highlight(plan.project || "")),
-    timeCell(plan.created, plan.createdExact),
-    timeCell(plan.updated, true),
-    el("td", { className: "col-size" }, formatSize(plan.size)));
+    el("td", { className: "col-project" }, ...highlight(item.project || "")),
+    timeCell(item.created, item.createdExact !== false),
+    timeCell(item.updated, true),
+    el("td", { className: "col-size" }, kind.countText(item)));
   if (index === state.selected) tr.classList.add("selected");
   return tr;
 }
 
 function render() {
-  const plans = [...data.plans].sort(compare);
-  document.body.classList.toggle("no-project", !data.transcripts);
-  state.selected = Math.min(state.selected, Math.max(plans.length - 1, 0));
-  tbody.replaceChildren(...plans.map(row));
-  empty.hidden = plans.length > 0;
-  count.textContent = plans.length === data.total ? `${data.total} plans` : `${plans.length} of ${data.total}`;
+  const items = [...data.items].sort(compare);
+  state.selected = Math.min(state.selected, Math.max(items.length - 1, 0));
+  tbody.replaceChildren(...items.map(row));
+  empty.hidden = items.length > 0;
+  count.textContent = items.length === data.total ? `${data.total} ${noun}` : `${items.length} of ${data.total}`;
   for (const btn of document.querySelectorAll("th button")) {
     const active = btn.dataset.sort === state.sort;
     btn.closest("th").setAttribute("aria-sort", active ? (state.dir === "asc" ? "ascending" : "descending") : "none");
@@ -105,7 +122,7 @@ function writeURL() {
   if (state.dir !== defaultDir[state.sort]) p.set("dir", state.dir);
   const qs = p.toString() ? "?" + p : "";
   history.replaceState(null, "", location.pathname + qs);
-  sessionStorage.setItem("plans-list", qs);
+  sessionStorage.setItem(noun + "-list", qs);
 }
 
 function readURL() {
@@ -118,9 +135,10 @@ function readURL() {
 
 async function load() {
   const id = ++requestSeq;
-  const res = await fetch("/api/plans?q=" + encodeURIComponent(state.q));
+  const res = await fetch(kind.api + "?q=" + encodeURIComponent(state.q));
   if (!res.ok || id !== requestSeq) return;
-  data = await res.json();
+  const body = await res.json();
+  data = { total: body.total, items: body[noun] };
   render();
 }
 

@@ -7,7 +7,7 @@ const views = {
 const fullFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 function show(view) {
-  for (const [name, node] of Object.entries(views)) node.hidden = name !== view;
+  for (const [name, node] of Object.entries(views)) if (node) node.hidden = name !== view;
   for (const btn of document.querySelectorAll("[data-view]")) {
     btn.setAttribute("aria-pressed", String(btn.dataset.view === view));
   }
@@ -25,20 +25,21 @@ for (const btn of document.querySelectorAll("[data-view]")) {
   });
 }
 
-document.getElementById("copy").addEventListener("click", async (e) => {
-  const btn = e.currentTarget;
+const copyBtn = document.getElementById("copy");
+const copyLabel = copyBtn.textContent;
+copyBtn.addEventListener("click", async () => {
   try {
-    await navigator.clipboard.writeText(views.raw.textContent);
-    btn.textContent = "Copied";
+    await navigator.clipboard.writeText(document.getElementById(copyBtn.dataset.copy).textContent);
+    copyBtn.textContent = "Copied";
   } catch {
-    btn.textContent = "Copy failed";
+    copyBtn.textContent = "Copy failed";
   }
-  setTimeout(() => (btn.textContent = "Copy"), 1500);
+  setTimeout(() => (copyBtn.textContent = copyLabel), 1500);
 });
 
 document.addEventListener("keydown", (e) => {
   if (e.target.closest("input, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === "r") document.querySelector(`[data-view="${viewFromHash() === "raw" ? "rendered" : "raw"}"]`).click();
+  if (e.key === "r") document.querySelector(`[data-view="${viewFromHash() === "raw" ? "rendered" : "raw"}"]`)?.click();
   if (e.key === "Escape" || e.key === "Backspace") document.getElementById("back").click();
 });
 
@@ -46,8 +47,9 @@ for (const t of document.querySelectorAll("time[datetime]")) {
   t.textContent = fullFmt.format(new Date(t.dateTime));
 }
 
-const listQuery = sessionStorage.getItem("plans-list");
-if (listQuery) document.getElementById("back").href = "/" + listQuery;
+const back = document.getElementById("back");
+const listQuery = sessionStorage.getItem(back.dataset.list);
+if (listQuery) back.href = back.getAttribute("href") + listQuery;
 
 window.addEventListener("hashchange", () => show(viewFromHash()));
 show(viewFromHash());

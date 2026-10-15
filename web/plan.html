@@ -9,11 +9,11 @@
 </head>
 <body>
 <header class="bar">
-  <h1><a id="back" href="/">Plans</a></h1>
+  <h1><a id="back" href="/" data-list="plans-list">Plans</a></h1>
   <nav class="tabs" aria-label="View">
     <button type="button" data-view="rendered" aria-pressed="true">Rendered</button>
     <button type="button" data-view="raw" aria-pressed="false">Raw</button>
-    <button type="button" id="copy">Copy</button>
+    <button type="button" id="copy" data-copy="raw-view">Copy</button>
     <a href="/raw/{{.Name}}">Open raw</a>
   </nav>
 </header>

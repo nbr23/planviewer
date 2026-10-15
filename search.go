@@ -29,24 +29,33 @@ func (q query) empty() bool {
 	return len(q.terms) == 0
 }
 
-func (q query) match(p *Plan) bool {
+func (q query) match(fields []string, body []byte) (string, bool) {
 	snippetAt := -1
 	for _, re := range q.terms {
-		if re.MatchString(p.Title) || re.MatchString(p.Name) || re.MatchString(p.Project) {
+		if matchAny(re, fields) {
 			continue
 		}
-		loc := re.FindIndex(p.body)
+		loc := re.FindIndex(body)
 		if loc == nil {
-			return false
+			return "", false
 		}
 		if snippetAt < 0 {
 			snippetAt = loc[0]
 		}
 	}
-	if snippetAt >= 0 {
-		p.Snippet = snippet(p.body, snippetAt)
+	if snippetAt < 0 {
+		return "", true
 	}
-	return true
+	return snippet(body, snippetAt), true
+}
+
+func matchAny(re *regexp.Regexp, fields []string) bool {
+	for _, f := range fields {
+		if re.MatchString(f) {
+			return true
+		}
+	}
+	return false
 }
 
 func filterPlans(plans []Plan, q query) []Plan {
@@ -54,9 +63,24 @@ func filterPlans(plans []Plan, q query) []Plan {
 		return plans
 	}
 	out := plans[:0]
-	for i := range plans {
-		if q.match(&plans[i]) {
-			out = append(out, plans[i])
+	for _, p := range plans {
+		if s, ok := q.match([]string{p.Title, p.Name, p.Project}, p.body); ok {
+			p.Snippet = s
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func filterSessions(sessions []Session, q query) []Session {
+	if q.empty() {
+		return sessions
+	}
+	out := sessions[:0]
+	for _, s := range sessions {
+		if snip, ok := q.match([]string{s.Title, s.Project, s.Branch, s.ID}, s.body); ok {
+			s.Snippet = snip
+			out = append(out, s)
 		}
 	}
 	return out

@@ -1,11 +1,12 @@
 # planviewer
 
-Browse the plans Claude Code writes in plan mode (`~/.claude/plans/*.md`), from the terminal or a browser.
+Browse the plans Claude Code writes in plan mode (`~/.claude/plans/*.md`) and search your past sessions to find the one to resume, from the terminal or a browser.
 
 - Full-text search across titles, filenames, projects and plan bodies, with highlighted snippets
 - Sort by updated, created, title, project or size
 - Rendered markdown, plus raw view
 - If `~/.claude/projects/` is present, session transcripts are used to recover each plan's exact creation time and originating project; otherwise creation time falls back to file mtime (shown as `~`)
+- Sessions: search transcripts by title (`/rename` or the generated one), project, git branch, your prompts and Claude's replies, then read the conversation and get the command to resume it. Tool calls, tool output and thinking are not indexed.
 
 ## Install
 
@@ -23,9 +24,9 @@ Both commands read from `$CLAUDE_CONFIG_DIR`, defaulting to `~/.claude`. Overrid
 planviewer          # same as: planviewer tui
 ```
 
-List view: type to search, `↑/↓` move, `enter` open, `tab` cycle sort key, `shift+tab` reverse, `ctrl+r` reload, `esc` clear search / quit.
+List view: type to search, `↑/↓` move, `enter` open, `tab` cycle sort key, `shift+tab` reverse, `ctrl+t` switch between plans and sessions, `ctrl+r` reload, `esc` clear search / quit.
 
-Plan view uses `less`-style keys: `j/k`, `space/b`, `g/G`, `/` and `?` to search, `n/N` next/previous match, `%` / `J` go to percent / line, `h` help, `q` back.
+Plan and session views use `less`-style keys: `j/k`, `space/b`, `g/G`, `/` and `?` to search, `n/N` next/previous match, `%` / `J` go to percent / line, `h` help, `q` back. In a session, `r` quits and prints `cd <project> && claude --resume <id>` for you to run.
 
 Markdown style follows the terminal background; set `GLAMOUR_STYLE` (e.g. `dark`, `light`, `dracula`) to override.
 
@@ -36,7 +37,9 @@ planviewer serve                 # http://localhost:8080
 planviewer serve -addr :9000     # or ADDR=:9000
 ```
 
-`/` focuses search, arrows + `enter` open a plan, column headers sort. On a plan page, `r` toggles raw view and `esc` goes back.
+`/` focuses search, arrows + `enter` open a plan, column headers sort. On a plan page, `r` toggles raw view and `esc` goes back. `/sessions` lists sessions the same way; a session page shows the conversation and a copyable resume command.
+
+The sessions pages serve your prompts and Claude's replies, so keep the listener on localhost unless you mean to share them.
 
 ### Docker
 

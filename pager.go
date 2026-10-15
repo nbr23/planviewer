@@ -37,6 +37,7 @@ var (
 		{"n / N", "next match / previous match"},
 		{"%", "go to percent"},
 		{"J", "go to line"},
+		{"r", "print resume command and quit (sessions)"},
 		{"h", "this help"},
 		{"q esc", "back to the list"},
 		{"ctrl+c", "quit"},
@@ -66,13 +67,22 @@ type renderKey struct {
 	updated time.Time
 }
 
+type document struct {
+	name    string
+	title   string
+	meta    []string
+	body    []byte
+	updated time.Time
+	hint    string
+}
+
 type match struct {
 	line, start, end int
 }
 
 type pager struct {
 	style    string
-	plan     Plan
+	doc      document
 	width    int
 	height   int
 	rendered renderKey
@@ -98,13 +108,13 @@ func (p *pager) setSize(w, h int) {
 	p.width = w
 	p.height = max(1, h-pagerHeaderLines-pagerFooterLines)
 	p.input.Width = max(1, w-len(p.input.Prompt)-1)
-	if p.plan.Name != "" {
+	if p.doc.name != "" {
 		p.render()
 	}
 }
 
-func (p *pager) open(plan Plan, terms []*regexp.Regexp) {
-	p.plan, p.terms = plan, terms
+func (p *pager) open(doc document, terms []*regexp.Regexp) {
+	p.doc, p.terms = doc, terms
 	p.backward, p.help, p.prompt, p.status = false, false, noPrompt, ""
 	p.render()
 	p.findMatches()
@@ -117,7 +127,7 @@ func (p *pager) open(plan Plan, terms []*regexp.Regexp) {
 
 func (p *pager) render() {
 	wrap := min(p.width, maxWrap)
-	key := renderKey{p.plan.Name, wrap, p.plan.Updated}
+	key := renderKey{p.doc.name, wrap, p.doc.updated}
 	if key == p.rendered {
 		return
 	}
@@ -127,7 +137,7 @@ func (p *pager) render() {
 	out, err := p.renderMarkdown(wrap)
 	p.err = err
 	if err != nil {
-		out = string(p.plan.body)
+		out = string(p.doc.body)
 	}
 	p.lines = trimBlank(strings.Split(out, "\n"))
 	if sameDoc {
@@ -142,7 +152,7 @@ func (p *pager) renderMarkdown(wrap int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return r.Render(string(p.plan.body))
+	return r.Render(string(p.doc.body))
 }
 
 func trimBlank(lines []string) []string {
@@ -178,6 +188,10 @@ func (p *pager) findMatches() {
 		}
 	}
 	p.cur = min(p.cur, len(p.matches)-1)
+}
+
+func (p *pager) idle() bool {
+	return p.prompt == noPrompt && !p.help
 }
 
 func (p *pager) maxTop() int {
@@ -373,19 +387,9 @@ func (p pager) View() string {
 }
 
 func (p pager) headerLines() []string {
-	now := time.Now()
-	meta := []string{p.plan.Name}
-	if p.plan.Project != "" {
-		meta = append(meta, p.plan.Project)
-	}
-	created := relativeTime(p.plan.Created, now)
-	if !p.plan.CreatedExact {
-		created = "~" + created
-	}
-	meta = append(meta, "created "+created, "updated "+relativeTime(p.plan.Updated, now))
 	return []string{
-		ansi.Truncate(selectedStyle.Render(p.plan.Title), p.width, "…"),
-		ansi.Truncate(mutedStyle.Render(strings.Join(meta, " · ")), p.width, "…"),
+		ansi.Truncate(selectedStyle.Render(p.doc.title), p.width, "…"),
+		ansi.Truncate(mutedStyle.Render(strings.Join(p.doc.meta, " · ")), p.width, "…"),
 	}
 }
 
@@ -451,7 +455,7 @@ func (p pager) statusView() string {
 	if p.prompt != noPrompt {
 		return ansi.Truncate(p.input.View(), p.width, "")
 	}
-	left := " " + p.plan.Name
+	left := " " + p.doc.name
 	switch {
 	case p.status != "":
 		left = " " + p.status
@@ -466,8 +470,11 @@ func (p pager) statusView() string {
 	last := min(p.top+p.height, len(p.lines))
 	right = append(right,
 		fmt.Sprintf("line %d-%d/%d", first, last, len(p.lines)),
-		fmt.Sprintf("%d%%", p.percent()),
-		"h help ")
+		fmt.Sprintf("%d%%", p.percent()))
+	if p.doc.hint != "" {
+		right = append(right, p.doc.hint)
+	}
+	right = append(right, "h help ")
 	r := strings.Join(right, "  ")
 	gap := max(1, p.width-ansi.StringWidth(left)-ansi.StringWidth(r))
 	bar := ansi.Truncate(left+strings.Repeat(" ", gap)+r, p.width, "")
