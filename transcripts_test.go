@@ -234,16 +234,22 @@ func TestPromptText(t *testing.T) {
 
 func TestResumeCommand(t *testing.T) {
 	tests := []struct {
-		s    Session
-		want string
+		cwd, home, want string
 	}{
-		{Session{ID: "abc-1", Cwd: "/home/u/dev/app"}, "cd /home/u/dev/app && claude --resume abc-1"},
-		{Session{ID: "abc-1", Cwd: "/home/u/my app's"}, `cd '/home/u/my app'\''s' && claude --resume abc-1`},
-		{Session{ID: "abc-1"}, "claude --resume abc-1"},
+		{"/home/u/dev/app", "/home/u", "cd ~/dev/app && claude --resume abc-1"},
+		{"/home/u/dev/app", "/home/u/", "cd ~/dev/app && claude --resume abc-1"},
+		{"/home/u", "/home/u", "cd ~ && claude --resume abc-1"},
+		{"/home/u/my app's", "/home/u", `cd ~/'my app'\''s' && claude --resume abc-1`},
+		{"/home/u2/app", "/home/u", "cd /home/u2/app && claude --resume abc-1"},
+		{"/srv/my app", "/home/u", "cd '/srv/my app' && claude --resume abc-1"},
+		{"/home/u/dev/app", "", "cd /home/u/dev/app && claude --resume abc-1"},
+		{"/home/u/dev/app", "/", "cd /home/u/dev/app && claude --resume abc-1"},
+		{"", "/home/u", "claude --resume abc-1"},
 	}
 	for _, tt := range tests {
-		if got := tt.s.resumeCommand(); got != tt.want {
-			t.Errorf("resumeCommand(%+v) = %q, want %q", tt.s, got, tt.want)
+		s := Session{ID: "abc-1", Cwd: tt.cwd}
+		if got := s.resumeCommand(tt.home); got != tt.want {
+			t.Errorf("resumeCommand(cwd=%q, home=%q) = %q, want %q", tt.cwd, tt.home, got, tt.want)
 		}
 	}
 }

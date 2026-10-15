@@ -18,7 +18,6 @@ import (
 
 const (
 	maxWrap          = 120
-	pagerHeaderLines = 2
 	pagerFooterLines = 1
 	matchContext     = 2
 )
@@ -26,6 +25,7 @@ const (
 var (
 	replyBullet    = bulletFor(runtime.GOOS)
 	statusBarStyle = lipgloss.NewStyle().Reverse(true)
+	commandStyle   = lipgloss.NewStyle().Foreground(accent)
 	currentMark    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(accent).Bold(true)
 	pagerHelp      = [][2]string{
 		{"↓ j enter ctrl+n", "down one line"},
@@ -76,7 +76,7 @@ type document struct {
 	body    []byte
 	turns   []turn
 	updated time.Time
-	hint    string
+	resume  string
 }
 
 type match struct {
@@ -84,22 +84,23 @@ type match struct {
 }
 
 type pager struct {
-	style    string
-	doc      document
-	width    int
-	height   int
-	rendered renderKey
-	err      error
-	lines    []string
-	top      int
-	terms    []*regexp.Regexp
-	backward bool
-	matches  []match
-	cur      int
-	prompt   promptKind
-	input    textinput.Model
-	status   string
-	help     bool
+	style      string
+	doc        document
+	width      int
+	termHeight int
+	height     int
+	rendered   renderKey
+	err        error
+	lines      []string
+	top        int
+	terms      []*regexp.Regexp
+	backward   bool
+	matches    []match
+	cur        int
+	prompt     promptKind
+	input      textinput.Model
+	status     string
+	help       bool
 }
 
 func newPager(style string) pager {
@@ -108,17 +109,22 @@ func newPager(style string) pager {
 }
 
 func (p *pager) setSize(w, h int) {
-	p.width = w
-	p.height = max(1, h-pagerHeaderLines-pagerFooterLines)
+	p.width, p.termHeight = w, h
+	p.layout()
 	p.input.Width = max(1, w-len(p.input.Prompt)-1)
 	if p.doc.name != "" {
 		p.render()
 	}
 }
 
+func (p *pager) layout() {
+	p.height = max(1, p.termHeight-len(p.headerLines())-pagerFooterLines)
+}
+
 func (p *pager) open(doc document, terms []*regexp.Regexp) {
 	p.doc, p.terms = doc, terms
 	p.backward, p.help, p.prompt, p.status = false, false, noPrompt, ""
+	p.layout()
 	p.render()
 	p.findMatches()
 	p.top, p.cur = 0, -1
@@ -456,10 +462,14 @@ func (p pager) View() string {
 }
 
 func (p pager) headerLines() []string {
-	return []string{
+	lines := []string{
 		ansi.Truncate(selectedStyle.Render(p.doc.title), p.width, "…"),
 		ansi.Truncate(mutedStyle.Render(strings.Join(p.doc.meta, " · ")), p.width, "…"),
 	}
+	if p.doc.resume != "" {
+		lines = append(lines, ansi.Truncate(commandStyle.Render(p.doc.resume), p.width, "…"))
+	}
+	return lines
 }
 
 func (p pager) bodyLines() []string {
@@ -540,8 +550,8 @@ func (p pager) statusView() string {
 	right = append(right,
 		fmt.Sprintf("line %d-%d/%d", first, last, len(p.lines)),
 		fmt.Sprintf("%d%%", p.percent()))
-	if p.doc.hint != "" {
-		right = append(right, p.doc.hint)
+	if p.doc.resume != "" {
+		right = append(right, "r resume")
 	}
 	right = append(right, "h help ")
 	r := strings.Join(right, "  ")

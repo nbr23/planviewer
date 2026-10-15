@@ -192,12 +192,26 @@ func (s Session) markdown() []byte {
 	return b.Bytes()
 }
 
-func (s Session) resumeCommand() string {
+func (s Session) resumeCommand(home string) string {
 	cmd := "claude --resume " + shellQuote(s.ID)
 	if s.Cwd == "" {
 		return cmd
 	}
-	return "cd " + shellQuote(s.Cwd) + " && " + cmd
+	return "cd " + shellPath(s.Cwd, home) + " && " + cmd
+}
+
+func shellPath(p, home string) string {
+	home = strings.TrimSuffix(home, "/")
+	if home == "" {
+		return shellQuote(p)
+	}
+	if p == home {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(p, home+"/"); ok {
+		return "~/" + shellQuote(rest)
+	}
+	return shellQuote(p)
 }
 
 func shellQuote(s string) string {

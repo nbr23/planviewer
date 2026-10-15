@@ -26,7 +26,7 @@ planviewer          # same as: planviewer tui
 
 List view: type to search, `↑/↓` move, `enter` open, `tab` cycle sort key, `shift+tab` reverse, `ctrl+t` switch between plans and sessions, `ctrl+r` reload, `esc` clear search / quit.
 
-Plan and session views use `less`-style keys: `j/k`, `space/b`, `g/G`, `/` and `?` to search, `n/N` next/previous match, `%` / `J` go to percent / line, `h` help, `q` back. In a session, `r` quits and prints `cd <project> && claude --resume <id>` for you to run.
+Plan and session views use `less`-style keys: `j/k`, `space/b`, `g/G`, `/` and `?` to search, `n/N` next/previous match, `%` / `J` go to percent / line, `h` help, `q` back. In a session, the header shows the command to resume it (`cd ~/<project> && claude --resume <id>`), and `r` quits and prints it for you to run.
 
 Markdown style follows the terminal background; set `GLAMOUR_STYLE` (e.g. `dark`, `light`, `dracula`) to override.
 

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/yuin/goldmark"
@@ -172,7 +173,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	page := sessionPage{Session: sess, Resume: sess.resumeCommand()}
+	home, _ := os.UserHomeDir()
+	page := sessionPage{Session: sess, Resume: sess.resumeCommand(home)}
 	for _, t := range sess.turns {
 		html, err := s.render([]byte(t.text))
 		if err != nil {

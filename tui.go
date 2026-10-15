@@ -94,7 +94,6 @@ type model struct {
 	width, height int
 	screen        screen
 	pager         pager
-	openResume    string
 	resume        string
 }
 
@@ -195,8 +194,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updatePager(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := msg.(tea.KeyMsg); ok && k.String() == "r" && m.openResume != "" && m.pager.idle() {
-		m.resume = m.openResume
+	if k, ok := msg.(tea.KeyMsg); ok && k.String() == "r" && m.pager.doc.resume != "" && m.pager.idle() {
+		m.resume = m.pager.doc.resume
 		return m, tea.Quit
 	}
 	var cmd tea.Cmd
@@ -204,7 +203,6 @@ func (m model) updatePager(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.pager, cmd, back = m.pager.Update(msg)
 	if back {
 		m.screen = listScreen
-		m.openResume = ""
 		return m, m.load()
 	}
 	return m, cmd
@@ -266,32 +264,32 @@ func (m model) open() (tea.Model, tea.Cmd) {
 	if key == "" {
 		return m, nil
 	}
-	doc, resume, err := m.document(key)
+	doc, err := m.document(key)
 	if err != nil {
 		m.status = fmt.Sprintf("cannot open %s: %v", key, err)
 		return m, m.load()
 	}
 	m.pager.open(doc, m.q.terms)
-	m.openResume = resume
 	m.screen = pagerScreen
 	return m, nil
 }
 
-func (m model) document(key string) (document, string, error) {
+func (m model) document(key string) (document, error) {
 	now := time.Now()
 	if m.mode == sessionsMode {
 		m.index.Refresh()
 		s, ok := m.index.Session(key)
 		if !ok {
-			return document{}, "", errSessionNotFound
+			return document{}, errSessionNotFound
 		}
-		return sessionDocument(s, now), s.resumeCommand(), nil
+		home, _ := os.UserHomeDir()
+		return sessionDocument(s, now, home), nil
 	}
 	p, err := m.store.Get(key)
 	if err != nil {
-		return document{}, "", err
+		return document{}, err
 	}
-	return planDocument(p, now), "", nil
+	return planDocument(p, now), nil
 }
 
 func planDocument(p Plan, now time.Time) document {
@@ -303,7 +301,7 @@ func planDocument(p Plan, now time.Time) document {
 	return document{name: p.Name, title: p.Title, meta: meta, body: p.body, updated: p.Updated}
 }
 
-func sessionDocument(s Session, now time.Time) document {
+func sessionDocument(s Session, now time.Time, home string) document {
 	var meta []string
 	for _, f := range []string{s.Project, s.Branch} {
 		if f != "" {
@@ -314,7 +312,15 @@ func sessionDocument(s Session, now time.Time) document {
 		"created "+relativeTime(s.Created, now),
 		"updated "+relativeTime(s.Updated, now),
 		messageCount(s.Messages))
-	return document{name: s.ID, title: s.Title, meta: meta, body: s.markdown(), turns: s.turns, updated: s.Updated, hint: "r resume"}
+	return document{
+		name:    s.ID,
+		title:   s.Title,
+		meta:    meta,
+		body:    s.markdown(),
+		turns:   s.turns,
+		updated: s.Updated,
+		resume:  s.resumeCommand(home),
+	}
 }
 
 func (m *model) toggleMode() {

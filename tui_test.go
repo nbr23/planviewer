@@ -199,6 +199,7 @@ func TestSortSessions(t *testing.T) {
 }
 
 func TestModelSessionsSearchOpenAndResume(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
 	plansDir, root := t.TempDir(), t.TempDir()
 	proj := filepath.Join(root, "-home-u-dev-app")
 	if err := os.MkdirAll(proj, 0o755); err != nil {
@@ -239,10 +240,14 @@ func TestModelSessionsSearchOpenAndResume(t *testing.T) {
 	if !strings.Contains(v, "> why does the vacuum stall?") || !strings.Contains(v, replyBullet+" The fringe tangles") {
 		t.Fatalf("session view is not a conversation:\n%s", v)
 	}
+	header := strings.Split(v, "\n")
+	if len(header) != 30 || header[2] != "cd ~/dev/app && claude --resume sess-1" {
+		t.Fatalf("view has %d lines, want 30, resume command on line 3:\n%s", len(header), v)
+	}
 
 	next, cmd := m.Update(typeText("r"))
 	m = next.(model)
-	if cmd == nil || cmd() != tea.Quit() || m.resume != "cd /home/u/dev/app && claude --resume sess-1" {
+	if cmd == nil || cmd() != tea.Quit() || m.resume != "cd ~/dev/app && claude --resume sess-1" {
 		t.Fatalf("r: resume=%q", m.resume)
 	}
 }
