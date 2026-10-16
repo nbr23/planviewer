@@ -18,6 +18,8 @@ Or build from source: `go build -o planviewer .`
 
 Both commands read from `$CLAUDE_CONFIG_DIR`, defaulting to `~/.claude`. Override with `-d <dir>`.
 
+The parsed transcript index is cached in your user cache directory (`~/.cache/planviewer` on Linux), so later launches only read what was appended since. Change the location with `-cache-dir <dir>`, or disable caching with `-cache-dir=`.
+
 ## CLI
 
 ```sh

@@ -278,3 +278,157 @@ func TestFilterSessions(t *testing.T) {
 		}
 	}
 }
+
+func cachedIndex(t *testing.T, root, cache string) *TranscriptIndex {
+	t.Helper()
+	idx := NewTranscriptIndex(root, 0)
+	idx.EnableCache(cache)
+	idx.Refresh()
+	if err := idx.CacheErr(); err != nil {
+		t.Fatal(err)
+	}
+	return idx
+}
+
+func cacheFixture(t *testing.T) (root, session, cache string) {
+	t.Helper()
+	root = t.TempDir()
+	proj := filepath.Join(root, "-home-u-dev-app")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	session = filepath.Join(proj, "sess.jsonl")
+	appendFile(t, session, userLine("2026-09-01T10:00:00Z", "original prompt")+writeRecord("2026-09-01T10:00:01Z", "/home/u/dev/app", "/h/.claude/plans/one.md"))
+	return root, session, filepath.Join(t.TempDir(), "cache", "index.gob")
+}
+
+func sessionTexts(t *testing.T, idx *TranscriptIndex, id string) []string {
+	t.Helper()
+	s, ok := idx.Session(id)
+	if !ok {
+		t.Fatalf("Session(%s) not found", id)
+	}
+	var out []string
+	for _, tr := range s.turns {
+		out = append(out, tr.text)
+	}
+	return out
+}
+
+func TestTranscriptCacheWarmStart(t *testing.T) {
+	root, session, cache := cacheFixture(t)
+	cachedIndex(t, root, cache)
+
+	info, err := os.Stat(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("cache mode = %o, want 600", perm)
+	}
+
+	st, err := os.Stat(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(session, bytes.ReplaceAll(data, []byte("original"), []byte("replaced")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(session, st.ModTime(), st.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	warm := cachedIndex(t, root, cache)
+	if got := sessionTexts(t, warm, "sess"); got[0] != "original prompt" {
+		t.Fatalf("turns = %q, want cached content", got)
+	}
+	if _, ok := warm.Lookup("one.md"); !ok {
+		t.Fatal("origin not restored from cache")
+	}
+}
+
+func TestTranscriptCacheResumesAppend(t *testing.T) {
+	root, session, cache := cacheFixture(t)
+	cachedIndex(t, root, cache)
+	appendFile(t, session, assistantLine("2026-09-01T10:00:02Z", "text", "appended reply"))
+
+	warm := cachedIndex(t, root, cache)
+	cold := NewTranscriptIndex(root, 0)
+	cold.Refresh()
+	if got, want := sessionTexts(t, warm, "sess"), sessionTexts(t, cold, "sess"); !slices.Equal(got, want) {
+		t.Fatalf("warm turns = %q, cold turns = %q", got, want)
+	}
+}
+
+func TestTranscriptCacheRescansRewrittenFile(t *testing.T) {
+	root, session, cache := cacheFixture(t)
+	cachedIndex(t, root, cache)
+
+	data, err := os.ReadFile(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritten := userLine("2026-09-02T10:00:00Z", "rewritten prompt") + strings.Repeat(" ", len(data)) + "\n"
+	if err := os.WriteFile(session, []byte(rewritten), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	warm := cachedIndex(t, root, cache)
+	if got := sessionTexts(t, warm, "sess"); !slices.Equal(got, []string{"rewritten prompt"}) {
+		t.Fatalf("turns = %q, want rescanned content", got)
+	}
+	if _, ok := warm.Lookup("one.md"); !ok {
+		t.Fatal("origin from earlier content was dropped")
+	}
+}
+
+func TestTranscriptCacheDeletedTranscript(t *testing.T) {
+	root, session, cache := cacheFixture(t)
+	cachedIndex(t, root, cache)
+	if err := os.Remove(session); err != nil {
+		t.Fatal(err)
+	}
+
+	warm := cachedIndex(t, root, cache)
+	if ss := warm.Sessions(); len(ss) != 0 {
+		t.Fatalf("deleted session still listed: %+v", ss)
+	}
+	if _, ok := warm.Lookup("one.md"); !ok {
+		t.Fatal("origin of deleted transcript was dropped")
+	}
+}
+
+func TestTranscriptCacheIgnoresStaleCache(t *testing.T) {
+	root, session, cache := cacheFixture(t)
+	if err := os.MkdirAll(filepath.Dir(cache), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cache, []byte("not a gob"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cachedIndex(t, root, cache)
+
+	st, err := os.Stat(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := indexCache{Build: "other", Root: root, Files: map[string]cachedTranscript{
+		session: {ModTime: st.ModTime(), Offset: st.Size(), Session: &cachedSession{ID: "sess", Turns: []cachedTurn{{User: true, Text: "stale"}}}},
+	}}
+	if err := writeCache(cache, &stale); err != nil {
+		t.Fatal(err)
+	}
+	idx := cachedIndex(t, root, cache)
+	if got := sessionTexts(t, idx, "sess"); got[0] != "original prompt" {
+		t.Fatalf("turns = %q, want fresh scan", got)
+	}
+
+	c, err := readCache(cache)
+	if err != nil || c == nil || c.Build == "other" {
+		t.Fatalf("cache not rewritten: %+v, %v", c, err)
+	}
+}

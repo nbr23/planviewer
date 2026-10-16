@@ -48,6 +48,22 @@ func claudeDirFlag(fs *flag.FlagSet) *string {
 	return dir
 }
 
+func cacheDirFlag(fs *flag.FlagSet) *string {
+	def := ""
+	if d, err := os.UserCacheDir(); err == nil {
+		def = filepath.Join(d, "planviewer")
+	}
+	return fs.String("cache-dir", def, "directory for the transcript index cache; empty disables caching")
+}
+
+func newIndex(projectsDir, cacheDir string) *TranscriptIndex {
+	index := NewTranscriptIndex(projectsDir, 15*time.Second)
+	if cacheDir != "" {
+		index.EnableCache(filepath.Join(cacheDir, cacheFileName(projectsDir)))
+	}
+	return index
+}
+
 func claudePaths(dir string) (plans, projects string) {
 	return filepath.Join(dir, "plans"), filepath.Join(dir, "projects")
 }
@@ -83,6 +99,7 @@ func main() {
 func runServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dir := claudeDirFlag(fs)
+	cacheDir := cacheDirFlag(fs)
 	addr := fs.String("addr", envOr("ADDR", ":8080"), "listen address")
 	fs.Parse(args)
 	plansDir, projectsDir := claudePaths(*dir)
@@ -93,11 +110,14 @@ func runServe(args []string) {
 
 	var index *TranscriptIndex
 	if isDir(projectsDir) {
-		index = NewTranscriptIndex(projectsDir, 15*time.Second)
+		index = newIndex(projectsDir, *cacheDir)
 		go func() {
 			start := time.Now()
 			index.Refresh()
 			log.Printf("indexed transcripts in %s in %s", projectsDir, time.Since(start).Round(time.Millisecond))
+			if err := index.CacheErr(); err != nil {
+				log.Printf("transcript cache: %v", err)
+			}
 		}()
 	} else {
 		log.Printf("no transcripts directory at %q; created dates fall back to modification time and sessions are unavailable", projectsDir)
@@ -119,6 +139,7 @@ func runServe(args []string) {
 func runTUI(args []string) error {
 	fs := flag.NewFlagSet("tui", flag.ExitOnError)
 	dir := claudeDirFlag(fs)
+	cacheDir := cacheDirFlag(fs)
 	fs.Parse(args)
 	plansDir, projectsDir := claudePaths(*dir)
 
@@ -127,7 +148,7 @@ func runTUI(args []string) error {
 	}
 	var index *TranscriptIndex
 	if isDir(projectsDir) {
-		index = NewTranscriptIndex(projectsDir, 15*time.Second)
+		index = newIndex(projectsDir, *cacheDir)
 	}
 	return runProgram(NewStore(plansDir, index), index)
 }

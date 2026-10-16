@@ -21,19 +21,24 @@ type Origin struct {
 }
 
 type transcriptFile struct {
-	info    fs.FileInfo
+	mtime   time.Time
 	offset  int64
+	tail    []byte
 	session *sessionBuilder
 }
 
 type TranscriptIndex struct {
-	root     string
-	interval time.Duration
-	mu       sync.Mutex
-	last     time.Time
-	files    map[string]*transcriptFile
-	origins  map[string]Origin
-	sessions map[string]*sessionBuilder
+	root      string
+	interval  time.Duration
+	mu        sync.Mutex
+	last      time.Time
+	files     map[string]*transcriptFile
+	origins   map[string]Origin
+	sessions  map[string]*sessionBuilder
+	dirty     bool
+	build     string
+	cachePath string
+	cacheErr  error
 }
 
 type transcriptRecord struct {
@@ -59,6 +64,8 @@ type contentBlock struct {
 		FilePath string `json:"file_path"`
 	} `json:"input"`
 }
+
+const tailLen = 64
 
 var (
 	planPathMarker    = []byte("/plans/")
@@ -135,9 +142,13 @@ func (t *TranscriptIndex) Refresh() {
 			continue
 		}
 		delete(t.files, p)
+		t.dirty = true
 		if tf.session != nil && t.sessions[tf.session.id] == tf.session {
 			delete(t.sessions, tf.session.id)
 		}
+	}
+	if t.dirty && t.cachePath != "" {
+		t.saveCache()
 	}
 }
 
@@ -152,12 +163,7 @@ func (t *TranscriptIndex) newSession(p string) *sessionBuilder {
 
 func (t *TranscriptIndex) scanFile(p string, info fs.FileInfo) {
 	tf, ok := t.files[p]
-	if !ok || !os.SameFile(tf.info, info) || info.Size() < tf.offset {
-		tf = &transcriptFile{session: t.newSession(p)}
-		t.files[p] = tf
-	}
-	tf.info = info
-	if info.Size() == tf.offset {
+	if ok && info.Size() == tf.offset && info.ModTime().Equal(tf.mtime) {
 		return
 	}
 
@@ -166,6 +172,12 @@ func (t *TranscriptIndex) scanFile(p string, info fs.FileInfo) {
 		return
 	}
 	defer f.Close()
+	if !ok || info.Size() < tf.offset || !bytes.Equal(readTail(f, tf.offset), tf.tail) {
+		tf = &transcriptFile{session: t.newSession(p)}
+		t.files[p] = tf
+	}
+	tf.mtime = info.ModTime()
+	t.dirty = true
 	if _, err := f.Seek(tf.offset, io.SeekStart); err != nil {
 		return
 	}
@@ -173,11 +185,20 @@ func (t *TranscriptIndex) scanFile(p string, info fs.FileInfo) {
 	for {
 		line, err := r.ReadBytes('\n')
 		if err != nil {
-			return
+			break
 		}
 		tf.offset += int64(len(line))
 		t.indexLine(line, tf.session)
 	}
+	tf.tail = readTail(f, tf.offset)
+}
+
+func readTail(f *os.File, offset int64) []byte {
+	buf := make([]byte, min(offset, tailLen))
+	if _, err := f.ReadAt(buf, offset-int64(len(buf))); err != nil {
+		return nil
+	}
+	return buf
 }
 
 func (t *TranscriptIndex) indexLine(line []byte, session *sessionBuilder) {
