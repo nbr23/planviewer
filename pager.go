@@ -24,8 +24,11 @@ const (
 
 var (
 	replyBullet    = bulletFor(runtime.GOOS)
-	statusBarStyle = lipgloss.NewStyle().Reverse(true)
-	commandStyle   = lipgloss.NewStyle().Foreground(accent)
+	panelBg        = lipgloss.AdaptiveColor{Light: "#E8E8F2", Dark: "#2A2A3C"}
+	statusBarStyle = lipgloss.NewStyle().Background(panelBg)
+	headerTitle    = selectedStyle.Background(panelBg)
+	headerMeta     = mutedStyle.Background(panelBg)
+	headerCommand  = lipgloss.NewStyle().Foreground(accent).Background(panelBg)
 	currentMark    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(accent).Bold(true)
 	pagerHelp      = [][2]string{
 		{"↓ j enter ctrl+n", "down one line"},
@@ -105,6 +108,7 @@ type pager struct {
 
 func newPager(style string) pager {
 	in := textinput.New()
+	in.PromptStyle, in.TextStyle, in.Cursor.TextStyle = statusBarStyle, statusBarStyle, statusBarStyle
 	return pager{style: style, input: in, cur: -1, height: 1}
 }
 
@@ -463,13 +467,18 @@ func (p pager) View() string {
 
 func (p pager) headerLines() []string {
 	lines := []string{
-		ansi.Truncate(selectedStyle.Render(p.doc.title), p.width, "…"),
-		ansi.Truncate(mutedStyle.Render(strings.Join(p.doc.meta, " · ")), p.width, "…"),
+		p.headerLine(headerTitle, p.doc.title),
+		p.headerLine(headerMeta, strings.Join(p.doc.meta, " · ")),
 	}
 	if p.doc.resume != "" {
-		lines = append(lines, ansi.Truncate(commandStyle.Render(p.doc.resume), p.width, "…"))
+		lines = append(lines, p.headerLine(headerCommand, p.doc.resume))
 	}
 	return lines
+}
+
+func (p pager) headerLine(style lipgloss.Style, text string) string {
+	text = ansi.Truncate(text, max(0, p.width-1), "…")
+	return style.PaddingLeft(1).Width(p.width).Render(text)
 }
 
 func (p pager) bodyLines() []string {
@@ -532,7 +541,8 @@ func (p pager) percent() int {
 
 func (p pager) statusView() string {
 	if p.prompt != noPrompt {
-		return ansi.Truncate(p.input.View(), p.width, "")
+		line := ansi.Truncate(p.input.View(), p.width, "")
+		return line + statusBarStyle.Render(strings.Repeat(" ", max(0, p.width-ansi.StringWidth(line))))
 	}
 	left := " " + p.doc.name
 	switch {

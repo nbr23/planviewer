@@ -241,7 +241,7 @@ func TestModelSessionsSearchOpenAndResume(t *testing.T) {
 		t.Fatalf("session view is not a conversation:\n%s", v)
 	}
 	header := strings.Split(v, "\n")
-	if len(header) != 30 || header[2] != "cd ~/dev/app && claude --resume sess-1" {
+	if len(header) != 30 || strings.TrimSpace(header[2]) != "cd ~/dev/app && claude --resume sess-1" {
 		t.Fatalf("view has %d lines, want 30, resume command on line 3:\n%s", len(header), v)
 	}
 
