@@ -3,6 +3,7 @@ services:
     build: .
     image: planviewer
     restart: unless-stopped
+    command: ["-cache-dir="]
     # Transcripts are mode 0600; on Linux hosts the container must run as their owner
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     ports:

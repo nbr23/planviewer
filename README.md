@@ -49,4 +49,4 @@ The sessions pages serve your prompts and Claude's replies, so keep the listener
 docker compose up -d
 ```
 
-Mounts `${CLAUDE_CONFIG_DIR:-~/.claude}/{plans,projects}` read-only and binds to `127.0.0.1:${PORT:-8080}`. Transcripts are mode `0600`, so on Linux set `HOST_UID`/`HOST_GID` to their owner if it isn't `1000`.
+Mounts `${CLAUDE_CONFIG_DIR:-~/.claude}/{plans,projects}` read-only and binds to `127.0.0.1:${PORT:-8080}`. Transcripts are mode `0600`, so on Linux set `HOST_UID`/`HOST_GID` to their owner if it isn't `1000`. The transcript cache is disabled in the container, so the index is rebuilt on each start.
