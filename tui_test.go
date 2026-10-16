@@ -260,3 +260,45 @@ func TestModelToggleWithoutTranscripts(t *testing.T) {
 		t.Fatalf("ctrl+t without transcripts: mode=%v status=%q", m.mode, m.status)
 	}
 }
+
+func TestSpread(t *testing.T) {
+	tests := []struct {
+		left, right string
+		width       int
+		want        string
+	}{
+		{"abc", "xy", 10, "abc     xy"},
+		{"abcdefghij", "xy", 8, "abcd… xy"},
+	}
+	for _, tt := range tests {
+		if got := spread(tt.left, tt.right, tt.width); got != tt.want {
+			t.Errorf("spread(%q, %q, %d) = %q, want %q", tt.left, tt.right, tt.width, got, tt.want)
+		}
+	}
+}
+
+func TestItemLines(t *testing.T) {
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	m := update(t, newModel(NewStore(t.TempDir(), nil), nil, "notty"), tea.WindowSizeMsg{Width: 60, Height: 30})
+	s := Session{ID: "a", Title: "Vacuum stalls", Project: "app", Branch: "main",
+		Created: now.Add(-48 * time.Hour), Updated: now.Add(-2 * time.Hour), Messages: 12}
+
+	lines := m.itemLines(s, false, now)
+	for i, l := range lines[:2] {
+		lines[i] = ansi.Strip(l)
+		if w := ansi.StringWidth(lines[i]); w != 60 {
+			t.Errorf("line %d width = %d, want 60: %q", i, w, lines[i])
+		}
+	}
+	if !strings.HasPrefix(lines[0], "  Vacuum stalls ") || !strings.HasSuffix(lines[0], " 2h ago") {
+		t.Errorf("title line = %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "  app  main ") || !strings.HasSuffix(lines[1], " 12 messages · created 2d ago") {
+		t.Errorf("meta line = %q", lines[1])
+	}
+
+	s.Title = strings.Repeat("x", 100)
+	if l := ansi.Strip(m.itemLines(s, false, now)[0]); !strings.Contains(l, "x… ") || !strings.HasSuffix(l, " 2h ago") {
+		t.Errorf("long title line = %q", l)
+	}
+}

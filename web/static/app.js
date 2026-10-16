@@ -12,7 +12,7 @@ const kinds = {
     api: "/api/sessions",
     count: "messages",
     link: (s) => "/s/" + encodeURIComponent(s.id),
-    sub: (s) => [s.branch, s.id].filter(Boolean).join(" · "),
+    sub: (s) => s.id,
     countText: (s) => String(s.messages),
   },
 };
@@ -25,7 +25,8 @@ let requestSeq = 0;
 let debounce;
 
 const search = document.getElementById("q");
-const tbody = document.querySelector("#items tbody");
+const table = document.getElementById("items");
+const tbody = table.tBodies[0];
 const count = document.getElementById("count");
 const empty = document.getElementById("empty");
 
@@ -33,6 +34,7 @@ const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 const fullFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const shortFmt = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const yearFmt = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
+const encoder = new TextEncoder();
 
 function el(tag, props, ...children) {
   const node = document.createElement(tag);
@@ -61,14 +63,35 @@ function relative(date) {
   return (date.getFullYear() === new Date().getFullYear() ? shortFmt : yearFmt).format(date);
 }
 
-function timeCell(iso, exact) {
+function recency(date) {
+  const age = Date.now() - date;
+  if (age < 3600e3) return "fresh";
+  if (age < 86400e3) return "recent";
+  return "";
+}
+
+function timeCell(iso, exact, col) {
   const date = new Date(iso);
   const t = el("time", { dateTime: iso, textContent: relative(date), title: fullFmt.format(date) });
   if (!exact) {
     t.textContent = "~" + t.textContent;
     t.title += "\nApproximate: no transcript found, showing last modified time";
   }
-  return el("td", { className: "col-date" }, t);
+  if (col === "updated") t.className = recency(date);
+  return el("td", { className: "col-date col-" + col }, t);
+}
+
+function projectClass(name) {
+  let h = 2166136261;
+  for (const b of encoder.encode(name)) h = Math.imul(h ^ b, 16777619);
+  return "p" + ((h >>> 0) % 8);
+}
+
+function projectCell(item) {
+  const td = el("td", { className: "col-project" });
+  if (item.project) td.append(el("span", { className: "project " + projectClass(item.project) }, ...highlight(item.project)));
+  if (item.branch) td.append(el("div", { className: "slug" }, ...highlight(item.branch)));
+  return td;
 }
 
 function formatSize(bytes) {
@@ -95,9 +118,9 @@ function row(item, index) {
   if (item.snippet) title.append(el("div", { className: "snippet" }, ...highlight(item.snippet)));
   const tr = el("tr", {},
     title,
-    el("td", { className: "col-project" }, ...highlight(item.project || "")),
-    timeCell(item.created, item.createdExact !== false),
-    timeCell(item.updated, true),
+    projectCell(item),
+    timeCell(item.created, item.createdExact !== false, "created"),
+    timeCell(item.updated, true, "updated"),
     el("td", { className: "col-size" }, kind.countText(item)));
   if (index === state.selected) tr.classList.add("selected");
   return tr;
@@ -106,6 +129,7 @@ function row(item, index) {
 function render() {
   const items = [...data.items].sort(compare);
   state.selected = Math.min(state.selected, Math.max(items.length - 1, 0));
+  table.dataset.sort = state.sort;
   tbody.replaceChildren(...items.map(row));
   empty.hidden = items.length > 0;
   count.textContent = items.length === data.total ? `${data.total} ${noun}` : `${items.length} of ${data.total}`;

@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"slices"
 	"strings"
@@ -31,6 +32,19 @@ var (
 	barStyle      = lipgloss.NewStyle().Foreground(accent)
 	markStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#F5D76E"))
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#C0392B", Dark: "#FF6B6B"})
+	freshStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A7F37", Dark: "#3FB950"})
+	emphasisStyle = lipgloss.NewStyle().Bold(true)
+
+	projectPalette = [...]lipgloss.AdaptiveColor{
+		{Light: "#0969DA", Dark: "#58A6FF"},
+		{Light: "#1A7F37", Dark: "#3FB950"},
+		{Light: "#BC4C00", Dark: "#F0883E"},
+		{Light: "#8250DF", Dark: "#BC8CFF"},
+		{Light: "#BF3989", Dark: "#F778BA"},
+		{Light: "#1B7C83", Dark: "#39C5CF"},
+		{Light: "#9A6700", Dark: "#D29922"},
+		{Light: "#C4432B", Dark: "#F78166"},
+	}
 )
 
 type screen int
@@ -66,7 +80,8 @@ type sortState struct {
 type listItem interface {
 	itemKey() string
 	itemTitle() string
-	itemMeta(q query, now time.Time) []string
+	itemUpdated() time.Time
+	itemMeta(q query, sortKey string, now time.Time) (left, right []string)
 	itemSnippet() string
 }
 
@@ -138,6 +153,10 @@ func newModel(store *Store, index *TranscriptIndex, style string) model {
 
 func (m model) kind() listKind {
 	return listKinds[m.mode]
+}
+
+func (m model) sortKey() string {
+	return m.kind().sortKeys[m.sorts[m.mode].key]
 }
 
 func (m model) total() int {
@@ -347,16 +366,15 @@ func (m *model) resort() {
 }
 
 func (m *model) refilter() {
-	st := m.sorts[m.mode]
-	key := m.kind().sortKeys[st.key]
+	key, desc := m.sortKey(), m.sorts[m.mode].desc
 	switch m.mode {
 	case sessionsMode:
 		ss := filterSessions(slices.Clone(m.sessions), m.q)
-		sortSessions(ss, key, st.desc)
+		sortSessions(ss, key, desc)
 		m.shown = listItems(ss)
 	default:
 		ps := filterPlans(slices.Clone(m.plans), m.q)
-		sortPlans(ps, key, st.desc)
+		sortPlans(ps, key, desc)
 		m.shown = listItems(ps)
 	}
 	m.cursor = min(m.cursor, max(len(m.shown)-1, 0))
@@ -457,17 +475,14 @@ func (m model) headerView() string {
 	if len(m.shown) != m.total() {
 		count = fmt.Sprintf("%d of %d %s", len(m.shown), m.total(), m.kind().noun)
 	}
-	st := m.sorts[m.mode]
 	arrow := "↑"
-	if st.desc {
+	if m.sorts[m.mode].desc {
 		arrow = "↓"
 	}
-	right := mutedStyle.Render(fmt.Sprintf("%s · %s %s", count, m.kind().sortKeys[st.key], arrow))
+	right := mutedStyle.Render(count+" · ") + barStyle.Render(m.sortKey()+" "+arrow)
 	in := m.input
 	in.Width = max(10, m.width-lipgloss.Width(right)-len(in.Prompt)-2)
-	left := in.View()
-	gap := max(1, m.width-lipgloss.Width(left)-lipgloss.Width(right))
-	return left + strings.Repeat(" ", gap) + right
+	return spread(in.View(), right, m.width)
 }
 
 func (m model) footerView() string {
@@ -503,29 +518,64 @@ func (m model) itemLines(it listItem, selected bool, now time.Time) []string {
 	if selected {
 		bar, title = barStyle.Render("▌ "), selectedStyle
 	}
+	width := m.width - lipgloss.Width(bar)
+	sortKey := m.sortKey()
+	updated := recencyStyle(it.itemUpdated(), now).Bold(sortKey == "updated").Render(relativeTime(it.itemUpdated(), now))
+	left, right := it.itemMeta(m.q, sortKey, now)
 	lines := []string{
-		bar + m.q.highlight(it.itemTitle(), title),
-		bar + strings.Join(it.itemMeta(m.q, now), mutedStyle.Render(" · ")),
+		bar + spread(m.q.highlight(it.itemTitle(), title), updated, width),
+		bar + spread(strings.Join(left, "  "), strings.Join(right, mutedStyle.Render(" · ")), width),
 	}
 	if s := it.itemSnippet(); s != "" {
-		lines = append(lines, bar+m.q.highlight(s, plainStyle))
+		lines = append(lines, bar+m.q.highlight(s, mutedStyle))
 	}
 	return append(lines, "")
 }
 
-func (p Plan) itemKey() string     { return p.Name }
-func (p Plan) itemTitle() string   { return p.Title }
-func (p Plan) itemSnippet() string { return p.Snippet }
+func spread(left, right string, width int) string {
+	rw := lipgloss.Width(right)
+	left = ansi.Truncate(left, max(0, width-rw-1), "…")
+	return left + strings.Repeat(" ", max(1, width-lipgloss.Width(left)-rw)) + right
+}
 
-func (p Plan) itemMeta(q query, now time.Time) []string {
-	meta := []string{q.highlight(p.Name, mutedStyle)}
-	if p.Project != "" {
-		meta = append(meta, q.highlight(p.Project, mutedStyle))
+func projectStyle(name string) lipgloss.Style {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return lipgloss.NewStyle().Foreground(projectPalette[h.Sum32()%uint32(len(projectPalette))])
+}
+
+func recencyStyle(t, now time.Time) lipgloss.Style {
+	switch d := now.Sub(t); {
+	case d < time.Hour:
+		return freshStyle
+	case d < 24*time.Hour:
+		return plainStyle
 	}
-	return append(meta,
-		mutedStyle.Render("created "+p.createdLabel(now)),
-		mutedStyle.Render("updated "+relativeTime(p.Updated, now)),
-		mutedStyle.Render(formatSize(p.Size)))
+	return mutedStyle
+}
+
+func metaStyle(emphasized bool) lipgloss.Style {
+	if emphasized {
+		return emphasisStyle
+	}
+	return mutedStyle
+}
+
+func (p Plan) itemKey() string        { return p.Name }
+func (p Plan) itemTitle() string      { return p.Title }
+func (p Plan) itemUpdated() time.Time { return p.Updated }
+func (p Plan) itemSnippet() string    { return p.Snippet }
+
+func (p Plan) itemMeta(q query, sortKey string, now time.Time) (left, right []string) {
+	if p.Project != "" {
+		left = append(left, q.highlight(p.Project, projectStyle(p.Project).Bold(sortKey == "project")))
+	}
+	left = append(left, q.highlight(p.Name, mutedStyle))
+	right = []string{
+		metaStyle(sortKey == "size").Render(formatSize(p.Size)),
+		metaStyle(sortKey == "created").Render("created " + p.createdLabel(now)),
+	}
+	return left, right
 }
 
 func (p Plan) createdLabel(now time.Time) string {
@@ -535,21 +585,23 @@ func (p Plan) createdLabel(now time.Time) string {
 	return "~" + relativeTime(p.Created, now)
 }
 
-func (s Session) itemKey() string     { return s.ID }
-func (s Session) itemTitle() string   { return s.Title }
-func (s Session) itemSnippet() string { return s.Snippet }
+func (s Session) itemKey() string        { return s.ID }
+func (s Session) itemTitle() string      { return s.Title }
+func (s Session) itemUpdated() time.Time { return s.Updated }
+func (s Session) itemSnippet() string    { return s.Snippet }
 
-func (s Session) itemMeta(q query, now time.Time) []string {
-	var meta []string
-	for _, f := range []string{s.Project, s.Branch} {
-		if f != "" {
-			meta = append(meta, q.highlight(f, mutedStyle))
-		}
+func (s Session) itemMeta(q query, sortKey string, now time.Time) (left, right []string) {
+	if s.Project != "" {
+		left = append(left, q.highlight(s.Project, projectStyle(s.Project).Bold(sortKey == "project")))
 	}
-	return append(meta,
-		mutedStyle.Render("created "+relativeTime(s.Created, now)),
-		mutedStyle.Render("updated "+relativeTime(s.Updated, now)),
-		mutedStyle.Render(messageCount(s.Messages)))
+	if s.Branch != "" {
+		left = append(left, q.highlight(s.Branch, mutedStyle))
+	}
+	right = []string{
+		metaStyle(sortKey == "messages").Render(messageCount(s.Messages)),
+		metaStyle(sortKey == "created").Render("created " + relativeTime(s.Created, now)),
+	}
+	return left, right
 }
 
 func (q query) highlight(s string, base lipgloss.Style) string {
