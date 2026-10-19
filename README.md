@@ -31,7 +31,7 @@ planviewer          # same as: planviewer tui
 
 List view: type to search, `↑/↓` move, `enter` open, `tab` cycle sort key, `shift+tab` reverse, `ctrl+t` switch between plans and sessions, `ctrl+r` reload, `esc` clear search / quit.
 
-Plan and session views use `less`-style keys: `j/k`, `space/b`, `g/G`, `/` and `?` to search, `n/N` next/previous match, `%` / `J` go to percent / line, `h` help, `q` back. In a session, the header shows the command to resume it (`cd ~/<project> && claude --resume <id>`, `codex resume <id>` for Codex, `agy --conversation=<id>` for Antigravity), and `r` quits and prints it for you to run.
+Plan and session views use `most`-style keys: `j/k`, `space/u`, `g/G` (or `t/b`), `/` and `?` to search, `n/N` next/previous match, `%` / `J` go to percent / line, `h` help, `q` back. In a session, the header shows the command to resume it (`claude --resume <id>`, `codex resume <id>` for Codex, `agy --conversation=<id>` for Antigravity, prefixed with `cd ~/<project> &&`), and `r` quits and prints it for you to run.
 
 Markdown style follows the terminal background; set `GLAMOUR_STYLE` (e.g. `dark`, `light`, `dracula`) to override.
 
@@ -42,7 +42,7 @@ planviewer serve                 # http://localhost:8080
 planviewer serve -addr :9000     # or ADDR=:9000
 ```
 
-`/` focuses search, arrows + `enter` open a plan, column headers sort. On a plan page, `r` toggles raw view and `esc` goes back. `/sessions` lists sessions the same way; a session page shows the conversation and a copyable resume command.
+`/` focuses search, arrows + `enter` open a plan, column headers sort. On a plan page, `r` toggles raw view. `/sessions` lists sessions the same way; a session page shows the conversation and a copyable resume command. On either page, `esc` or `backspace` goes back.
 
 The sessions pages serve your prompts and the agents' replies, so keep the listener on localhost unless you mean to share them.
 
