@@ -72,11 +72,7 @@ func agyRoot(dir string) string {
 }
 
 func claudeDirFlag(fs *flag.FlagSet) *string {
-	dir := new(string)
-	def := defaultClaudeDir()
-	fs.StringVar(dir, "claude-dir", def, "Claude Code config directory holding plans/ and projects/ with session transcripts")
-	fs.StringVar(dir, "d", def, "shorthand for -claude-dir")
-	return dir
+	return fs.String("claude-dir", defaultClaudeDir(), "Claude Code config directory holding plans/ and projects/ with session transcripts")
 }
 
 func codexDirFlag(fs *flag.FlagSet) *string {

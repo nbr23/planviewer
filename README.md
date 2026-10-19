@@ -19,7 +19,7 @@ go install github.com/nbr23/planviewer@latest
 
 Or build from source: `go build -o planviewer .`
 
-Both commands read Claude Code data from `$CLAUDE_CONFIG_DIR`, defaulting to `~/.claude` (override with `-d <dir>`), Codex data from `$CODEX_HOME`, defaulting to `~/.codex` (override with `-codex-dir <dir>`, disable with `-codex-dir=`), and Antigravity data from `~/.gemini/antigravity-cli` (override with `-agy-dir <dir>`, pointing at either `~/.gemini` or its `antigravity-cli` directory; disable with `-agy-dir=`). Any one of them is enough.
+Both commands read Claude Code data from `$CLAUDE_CONFIG_DIR`, defaulting to `~/.claude` (override with `-claude-dir <dir>`), Codex data from `$CODEX_HOME`, defaulting to `~/.codex` (override with `-codex-dir <dir>`, disable with `-codex-dir=`), and Antigravity data from `~/.gemini/antigravity-cli` (override with `-agy-dir <dir>`, pointing at either `~/.gemini` or its `antigravity-cli` directory; disable with `-agy-dir=`). Any one of them is enough.
 
 The parsed transcript index is cached in your user cache directory (`~/.cache/planviewer` on Linux), so later launches only read what was appended since. Change the location with `-cache-dir <dir>`, or disable caching with `-cache-dir=`.
 
