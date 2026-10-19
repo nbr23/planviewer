@@ -52,16 +52,4 @@ The sessions pages serve your prompts and the agents' replies, so keep the liste
 docker compose up -d
 ```
 
-Mounts `${CLAUDE_CONFIG_DIR:-~/.claude}/{plans,projects}` read-only and binds to `127.0.0.1:${PORT:-8080}`. Transcripts are mode `0600`, so on Linux set `HOST_UID`/`HOST_GID` to their owner if it isn't `1000`. The transcript cache is disabled in the container, so the index is rebuilt on each start.
-
-To include Codex, add the override that mounts `${CODEX_HOME:-~/.codex}/sessions` and `session_index.jsonl` read-only:
-
-```sh
-docker compose -f compose.yaml -f compose.codex.yaml up -d
-```
-
-For Antigravity, `compose.agy.yaml` mounts `brain`, `cache`, `annotations` and `history.jsonl` from `~/.gemini/antigravity-cli` read-only (not its OAuth tokens). Overrides can be combined:
-
-```sh
-docker compose -f compose.yaml -f compose.codex.yaml -f compose.agy.yaml up -d
-```
+Mounts read-only `${CLAUDE_CONFIG_DIR:-~/.claude}/{plans,projects}`, `${CODEX_HOME:-~/.codex}/{sessions,session_index.jsonl}` and `~/.gemini/antigravity-cli/{brain,cache,annotations,history.jsonl}` (none of the tools' credentials), and binds to `127.0.0.1:${PORT:-8080}`. Docker creates any missing mount source as an empty root-owned directory, so remove the lines for tools you don't use. Transcripts are mode `0600`, so on Linux set `HOST_UID`/`HOST_GID` to their owner if it isn't `1000`. The transcript cache is disabled in the container, so the index is rebuilt on each start.
