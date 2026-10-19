@@ -1,19 +1,25 @@
 package main
 
-import "slices"
+import (
+	"errors"
+	"slices"
+	"strings"
+)
 
 const (
 	sourceClaude = "claude"
 	sourceCodex  = "codex"
+	sourceAgy    = "agy"
 )
 
 type Catalog struct {
-	store   *Store
-	indexes []*TranscriptIndex
+	store     *Store
+	artifacts *artifactStore
+	indexes   []*TranscriptIndex
 }
 
-func NewCatalog(store *Store, indexes ...*TranscriptIndex) *Catalog {
-	c := &Catalog{store: store}
+func NewCatalog(store *Store, artifacts *artifactStore, indexes ...*TranscriptIndex) *Catalog {
+	c := &Catalog{store: store, artifacts: artifacts}
 	for _, idx := range indexes {
 		if idx != nil {
 			c.indexes = append(c.indexes, idx)
@@ -41,16 +47,21 @@ func (c *Catalog) Sources() []string {
 
 func (c *Catalog) Plans() ([]Plan, error) {
 	var plans []Plan
-	var err error
+	var storeErr, artifactErr error
 	if c.store != nil {
-		plans, err = c.store.List()
+		plans, storeErr = c.store.List()
+	}
+	if c.artifacts != nil {
+		var artifacts []Plan
+		artifacts, artifactErr = c.artifacts.List()
+		plans = append(plans, artifacts...)
 	}
 	for _, idx := range c.indexes {
 		idx.Refresh()
 		plans = append(plans, idx.Plans()...)
 	}
 	slices.SortFunc(plans, func(a, b Plan) int { return b.Updated.Compare(a.Updated) })
-	return plans, err
+	return plans, errors.Join(storeErr, artifactErr)
 }
 
 func (c *Catalog) Plan(name string) (Plan, error) {
@@ -59,6 +70,12 @@ func (c *Catalog) Plan(name string) (Plan, error) {
 			return Plan{}, errNotFound
 		}
 		return c.store.Get(name)
+	}
+	if strings.Contains(name, "/") {
+		if c.artifacts == nil {
+			return Plan{}, errNotFound
+		}
+		return c.artifacts.Get(name)
 	}
 	for _, idx := range c.indexes {
 		idx.Refresh()

@@ -51,6 +51,26 @@ func defaultCodexDir() string {
 	return filepath.Join(home, ".codex")
 }
 
+func defaultAgyDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".gemini"
+	}
+	return filepath.Join(home, ".gemini")
+}
+
+func agyRoot(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	for _, d := range []string{dir, filepath.Join(dir, "antigravity-cli")} {
+		if isDir(filepath.Join(d, "brain")) {
+			return d
+		}
+	}
+	return ""
+}
+
 func claudeDirFlag(fs *flag.FlagSet) *string {
 	dir := new(string)
 	def := defaultClaudeDir()
@@ -61,6 +81,10 @@ func claudeDirFlag(fs *flag.FlagSet) *string {
 
 func codexDirFlag(fs *flag.FlagSet) *string {
 	return fs.String("codex-dir", defaultCodexDir(), "Codex home directory holding sessions/; empty disables Codex")
+}
+
+func agyDirFlag(fs *flag.FlagSet) *string {
+	return fs.String("agy-dir", defaultAgyDir(), "Gemini directory holding antigravity-cli/, or that antigravity-cli directory itself; empty disables Antigravity")
 }
 
 func cacheDirFlag(fs *flag.FlagSet) *string {
@@ -82,10 +106,11 @@ func claudePaths(dir string) (plans, projects string) {
 	return filepath.Join(dir, "plans"), filepath.Join(dir, "projects")
 }
 
-func openCatalog(claudeDir, codexDir, cacheDir string) (*Catalog, error) {
+func openCatalog(claudeDir, codexDir, agyDir, cacheDir string) (*Catalog, error) {
 	plansDir, projectsDir := claudePaths(claudeDir)
 	var store *Store
-	var claude, codex *TranscriptIndex
+	var artifacts *artifactStore
+	var claude, codex, agy *TranscriptIndex
 	if isDir(projectsDir) {
 		claude = withCache(NewTranscriptIndex(projectsDir, 15*time.Second), cacheDir)
 	}
@@ -95,10 +120,14 @@ func openCatalog(claudeDir, codexDir, cacheDir string) (*Catalog, error) {
 	if sessionsDir := filepath.Join(codexDir, "sessions"); codexDir != "" && isDir(sessionsDir) {
 		codex = withCache(NewCodexIndex(sessionsDir, 15*time.Second), cacheDir)
 	}
-	if store == nil && claude == nil && codex == nil {
-		return nil, fmt.Errorf("no plans or sessions found in %q or %q", claudeDir, codexDir)
+	if root := agyRoot(agyDir); root != "" {
+		agy = withCache(NewAgyIndex(root, 15*time.Second), cacheDir)
+		artifacts = newArtifactStore(agy)
 	}
-	return NewCatalog(store, claude, codex), nil
+	if store == nil && claude == nil && codex == nil && agy == nil {
+		return nil, fmt.Errorf("no plans or sessions found in %q, %q or %q", claudeDir, codexDir, agyDir)
+	}
+	return NewCatalog(store, artifacts, claude, codex, agy), nil
 }
 
 func parseCommand(args []string) (string, []string, error) {
@@ -133,11 +162,12 @@ func runServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dir := claudeDirFlag(fs)
 	codexDir := codexDirFlag(fs)
+	agyDir := agyDirFlag(fs)
 	cacheDir := cacheDirFlag(fs)
 	addr := fs.String("addr", envOr("ADDR", ":8080"), "listen address")
 	fs.Parse(args)
 
-	catalog, err := openCatalog(*dir, *codexDir, *cacheDir)
+	catalog, err := openCatalog(*dir, *codexDir, *agyDir, *cacheDir)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -161,7 +191,7 @@ func runServe(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("serving %s on %s", strings.Join(catalog.Sources(), " and "), *addr)
+	log.Printf("serving %s on %s", strings.Join(catalog.Sources(), ", "), *addr)
 	httpSrv := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Handler(),
@@ -174,10 +204,11 @@ func runTUI(args []string) error {
 	fs := flag.NewFlagSet("tui", flag.ExitOnError)
 	dir := claudeDirFlag(fs)
 	codexDir := codexDirFlag(fs)
+	agyDir := agyDirFlag(fs)
 	cacheDir := cacheDirFlag(fs)
 	fs.Parse(args)
 
-	catalog, err := openCatalog(*dir, *codexDir, *cacheDir)
+	catalog, err := openCatalog(*dir, *codexDir, *agyDir, *cacheDir)
 	if err != nil {
 		return err
 	}

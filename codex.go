@@ -54,11 +54,13 @@ type codexTitles struct {
 
 func NewCodexIndex(sessionsDir string, interval time.Duration) *TranscriptIndex {
 	t := newTranscriptIndex(sessionsDir, codexFormat{}, interval)
-	t.titles = &codexTitles{path: filepath.Join(filepath.Dir(t.root), "session_index.jsonl")}
+	t.meta = &codexTitles{path: filepath.Join(filepath.Dir(t.root), "session_index.jsonl")}
 	return t
 }
 
 func (codexFormat) source() string { return sourceCodex }
+
+func (codexFormat) files(root string) []string { return jsonlFiles(root) }
 
 func (codexFormat) open(*TranscriptIndex, string) *sessionBuilder {
 	return nil
@@ -141,6 +143,13 @@ func codexItemText(rec *codexRecord) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func (c *codexTitles) annotate(s *Session) bool {
+	if name := c.names[s.ID]; name != "" {
+		s.Title = name
+	}
+	return true
 }
 
 func (c *codexTitles) refresh() {

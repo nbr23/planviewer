@@ -55,6 +55,7 @@ type sessionBuilder struct {
 	created, updated     time.Time
 	turns                []turn
 	plans                []sessionPlan
+	children             []string
 	body                 []byte
 }
 
@@ -87,6 +88,9 @@ func (b *sessionBuilder) add(rec *transcriptRecord) {
 }
 
 func (b *sessionBuilder) addTurn(user bool, at time.Time, text string) {
+	if text == "" {
+		return
+	}
 	if !at.IsZero() {
 		if b.created.IsZero() || at.Before(b.created) {
 			b.created = at
@@ -116,7 +120,11 @@ func (b *sessionBuilder) title() string {
 	case b.aiTitle != "":
 		return b.aiTitle
 	}
-	t := strings.TrimSpace(whitespaceRe.ReplaceAllString(b.firstPrompt, " "))
+	return shortTitle(b.firstPrompt)
+}
+
+func shortTitle(s string) string {
+	t := strings.TrimSpace(whitespaceRe.ReplaceAllString(s, " "))
 	if utf8.RuneCountInString(t) > titleMaxLen {
 		t = string([]rune(t)[:titleMaxLen]) + "…"
 	}
@@ -201,16 +209,24 @@ func (s Session) markdown() []byte {
 }
 
 func (s Session) agentName() string {
-	if s.Source == sourceCodex {
+	switch s.Source {
+	case sourceCodex:
 		return "Codex"
+	case sourceAgy:
+		return "Antigravity"
 	}
 	return "Claude"
 }
 
 func (s Session) resumeCommand(home string) string {
-	cmd := "claude --resume " + shellQuote(s.ID)
-	if s.Source == sourceCodex {
+	var cmd string
+	switch s.Source {
+	case sourceCodex:
 		cmd = "codex resume " + shellQuote(s.ID)
+	case sourceAgy:
+		cmd = "agy --conversation=" + shellQuote(s.ID)
+	default:
+		cmd = "claude --resume " + shellQuote(s.ID)
 	}
 	if s.Cwd == "" {
 		return cmd

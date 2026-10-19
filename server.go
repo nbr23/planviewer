@@ -95,8 +95,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /api/plans", s.handleList)
-	mux.HandleFunc("GET /p/{name}", s.handlePlan)
-	mux.HandleFunc("GET /raw/{name}", s.handleRaw)
+	mux.HandleFunc("GET /p/{name...}", s.handlePlan)
+	mux.HandleFunc("GET /raw/{name...}", s.handleRaw)
 	if s.catalog.HasSessions() {
 		mux.HandleFunc("GET /sessions", s.handleSessionsIndex)
 		mux.HandleFunc("GET /api/sessions", s.handleSessions)

@@ -135,6 +135,7 @@ tbody tr.selected { background: var(--selected); }
 .source { margin-right: 6px; padding: 0 5px; border-radius: 3px; font: 600 11px/16px var(--mono); color: #1a1a1a; }
 .source-claude { background: #d97757; }
 .source-codex { background: #10a37f; }
+.source-agy { background: #8ab4f8; }
 .p0 { color: var(--p0); }
 .p1 { color: var(--p1); }
 .p2 { color: var(--p2); }

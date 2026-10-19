@@ -37,6 +37,7 @@ type cachedSession struct {
 	Created, Updated     time.Time
 	Turns                []cachedTurn
 	Plans                []cachedPlan
+	Children             []string
 	Body                 []byte
 }
 
@@ -131,6 +132,7 @@ func (b *sessionBuilder) cached() *cachedSession {
 		Updated:     b.updated,
 		Turns:       make([]cachedTurn, len(b.turns)),
 		Plans:       make([]cachedPlan, len(b.plans)),
+		Children:    b.children,
 		Body:        b.body,
 	}
 	for i, tr := range b.turns {
@@ -154,6 +156,7 @@ func (c *cachedSession) builder() *sessionBuilder {
 		updated:     c.Updated,
 		turns:       make([]turn, len(c.Turns)),
 		plans:       make([]sessionPlan, len(c.Plans)),
+		children:    c.Children,
 		body:        c.Body,
 	}
 	for i, tr := range c.Turns {

@@ -38,6 +38,7 @@ var (
 	sourceStyles = map[string]lipgloss.Style{
 		sourceClaude: lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#D97757")),
 		sourceCodex:  lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#10A37F")),
+		sourceAgy:    lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#8AB4F8")),
 	}
 
 	projectPalette = [...]lipgloss.AdaptiveColor{

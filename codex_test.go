@@ -189,7 +189,7 @@ func TestCatalog(t *testing.T) {
 		codexPlan("2099-01-01T00:00:00Z", "# Codex plan"))
 
 	claude := NewTranscriptIndex(claudeRoot, 0)
-	c := NewCatalog(NewStore(plansDir, claude), claude, nil, NewCodexIndex(sessionsDir, 0))
+	c := NewCatalog(NewStore(plansDir, claude), nil, claude, nil, NewCodexIndex(sessionsDir, 0))
 	if got := c.Sources(); !slices.Equal(got, []string{sourceClaude, sourceCodex}) {
 		t.Fatalf("Sources() = %v", got)
 	}
@@ -218,10 +218,10 @@ func TestCatalog(t *testing.T) {
 		t.Fatalf("Session(codex-1) = %+v, %v", s, ok)
 	}
 
-	if got := NewCatalog(nil, NewCodexIndex(sessionsDir, 0)).Sources(); !slices.Equal(got, []string{sourceCodex}) {
+	if got := NewCatalog(nil, nil, NewCodexIndex(sessionsDir, 0)).Sources(); !slices.Equal(got, []string{sourceCodex}) {
 		t.Fatalf("codex-only Sources() = %v", got)
 	}
-	if _, err := NewCatalog(nil, NewCodexIndex(sessionsDir, 0)).Plan("brave-fox.md"); err != errNotFound {
+	if _, err := NewCatalog(nil, nil, NewCodexIndex(sessionsDir, 0)).Plan("brave-fox.md"); err != errNotFound {
 		t.Fatalf("Plan without store err = %v", err)
 	}
 }
