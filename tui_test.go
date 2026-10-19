@@ -127,7 +127,7 @@ func TestModelSearchOpenAndBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := update(t, newModel(store, nil, "notty"),
+	m := update(t, newModel(NewCatalog(store), "notty"),
 		tea.WindowSizeMsg{Width: 100, Height: 30},
 		loadedMsg{plans: plans})
 	if len(m.shown) != 3 {
@@ -213,7 +213,7 @@ func TestModelSessionsSearchOpenAndResume(t *testing.T) {
 
 	idx := NewTranscriptIndex(root, 0)
 	store := NewStore(plansDir, idx)
-	m := newModel(store, idx, "notty")
+	m := newModel(NewCatalog(store, idx), "notty")
 	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30}, m.load()())
 	if len(m.shown) != 0 || m.mode != plansMode {
 		t.Fatalf("plans mode shown = %v", shownNames(m))
@@ -253,11 +253,54 @@ func TestModelSessionsSearchOpenAndResume(t *testing.T) {
 }
 
 func TestModelToggleWithoutTranscripts(t *testing.T) {
-	m := update(t, newModel(NewStore(t.TempDir(), nil), nil, "notty"),
+	m := update(t, newModel(NewCatalog(NewStore(t.TempDir(), nil)), "notty"),
 		tea.WindowSizeMsg{Width: 100, Height: 30},
 		tea.KeyMsg{Type: tea.KeyCtrlT})
 	if m.mode != plansMode || m.status == "" {
 		t.Fatalf("ctrl+t without transcripts: mode=%v status=%q", m.mode, m.status)
+	}
+}
+
+func TestModelMixedSources(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	plansDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(plansDir, "brave-fox.md"), []byte("# Claude plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, sessionsDir := codexFixture(t)
+	appendFile(t, rollout(sessionsDir, "codex-1"), codexMeta("codex-1", "cli")+
+		codexMessage("2026-09-02T10:00:00Z", "UserMessage", "plan the rugs")+
+		codexPlan("2026-09-02T10:00:01Z", "# Rug plan\n\nVacuum first."))
+
+	if newModel(NewCatalog(NewStore(plansDir, nil)), "notty").labelSources {
+		t.Fatal("single source is labelled")
+	}
+	m := newModel(NewCatalog(NewStore(plansDir, nil), NewCodexIndex(sessionsDir, 0)), "notty")
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30}, m.load()())
+	if got := shownNames(m); !slices.Equal(got, []string{"brave-fox.md", "codex-1"}) {
+		t.Fatalf("plans shown = %v", got)
+	}
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "claude  brave-fox.md") || !strings.Contains(v, "codex  app  codex-1") {
+		t.Fatalf("list view lacks source labels:\n%s", v)
+	}
+
+	m = update(t, m, typeText("src:codex"))
+	if got := shownNames(m); !slices.Equal(got, []string{"codex-1"}) {
+		t.Fatalf("src:codex shown = %v", got)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if v := ansi.Strip(m.View()); m.screen != pagerScreen || !strings.Contains(v, "Rug plan") || !strings.Contains(v, "codex · codex-1 · app") {
+		t.Fatalf("codex plan view:\n%s", v)
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc}, tea.KeyMsg{Type: tea.KeyEsc}, tea.KeyMsg{Type: tea.KeyCtrlT})
+	if got := shownNames(m); m.mode != sessionsMode || !slices.Equal(got, []string{"codex-1"}) {
+		t.Fatalf("sessions shown = %v", got)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(typeText("r"))
+	if m = next.(model); cmd == nil || cmd() != tea.Quit() || m.resume != "cd ~/dev/app && codex resume codex-1" {
+		t.Fatalf("r: resume=%q", m.resume)
 	}
 }
 
@@ -279,7 +322,7 @@ func TestSpread(t *testing.T) {
 
 func TestItemLines(t *testing.T) {
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
-	m := update(t, newModel(NewStore(t.TempDir(), nil), nil, "notty"), tea.WindowSizeMsg{Width: 60, Height: 30})
+	m := update(t, newModel(NewCatalog(NewStore(t.TempDir(), nil)), "notty"), tea.WindowSizeMsg{Width: 60, Height: 30})
 	s := Session{ID: "a", Title: "Vacuum stalls", Project: "app", Branch: "main",
 		Created: now.Add(-48 * time.Hour), Updated: now.Add(-2 * time.Hour), Messages: 12}
 

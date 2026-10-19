@@ -29,6 +29,7 @@ type turn struct {
 
 type Session struct {
 	ID       string    `json:"id"`
+	Source   string    `json:"source"`
 	Title    string    `json:"title"`
 	Project  string    `json:"project,omitempty"`
 	Cwd      string    `json:"cwd,omitempty"`
@@ -41,6 +42,11 @@ type Session struct {
 	body     []byte
 }
 
+type sessionPlan struct {
+	at   time.Time
+	text string
+}
+
 type sessionBuilder struct {
 	id                   string
 	cwd, branch          string
@@ -48,6 +54,7 @@ type sessionBuilder struct {
 	firstPrompt          string
 	created, updated     time.Time
 	turns                []turn
+	plans                []sessionPlan
 	body                 []byte
 }
 
@@ -65,21 +72,22 @@ func (b *sessionBuilder) add(rec *transcriptRecord) {
 		if rec.IsSidechain || rec.IsMeta || rec.IsCompactSummary {
 			return
 		}
-		if text := recordText(rec); text != "" {
-			b.addTurn(rec, text)
+		text := recordText(rec)
+		if text == "" {
+			return
 		}
+		if b.cwd == "" {
+			b.cwd = rec.Cwd
+		}
+		if rec.GitBranch != "" {
+			b.branch = rec.GitBranch
+		}
+		b.addTurn(rec.Type == "user", rec.Timestamp, text)
 	}
 }
 
-func (b *sessionBuilder) addTurn(rec *transcriptRecord, text string) {
-	user := rec.Type == "user"
-	if b.cwd == "" {
-		b.cwd = rec.Cwd
-	}
-	if rec.GitBranch != "" {
-		b.branch = rec.GitBranch
-	}
-	if at := rec.Timestamp; !at.IsZero() {
+func (b *sessionBuilder) addTurn(user bool, at time.Time, text string) {
+	if !at.IsZero() {
 		if b.created.IsZero() || at.Before(b.created) {
 			b.created = at
 		}
@@ -98,7 +106,7 @@ func (b *sessionBuilder) addTurn(rec *transcriptRecord, text string) {
 		b.turns[n-1].text += "\n\n" + text
 		return
 	}
-	b.turns = append(b.turns, turn{user: user, at: rec.Timestamp, text: text})
+	b.turns = append(b.turns, turn{user: user, at: at, text: text})
 }
 
 func (b *sessionBuilder) title() string {
@@ -183,7 +191,7 @@ func (s Session) markdown() []byte {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		who := "Claude"
+		who := s.agentName()
 		if t.user {
 			who = "You"
 		}
@@ -192,8 +200,18 @@ func (s Session) markdown() []byte {
 	return b.Bytes()
 }
 
+func (s Session) agentName() string {
+	if s.Source == sourceCodex {
+		return "Codex"
+	}
+	return "Claude"
+}
+
 func (s Session) resumeCommand(home string) string {
 	cmd := "claude --resume " + shellQuote(s.ID)
+	if s.Source == sourceCodex {
+		cmd = "codex resume " + shellQuote(s.ID)
+	}
 	if s.Cwd == "" {
 		return cmd
 	}

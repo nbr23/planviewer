@@ -20,7 +20,7 @@ const noun = document.body.dataset.kind;
 const kind = kinds[noun];
 const defaultDir = { title: "asc", project: "asc", created: "desc", updated: "desc", [kind.count]: "desc" };
 const state = { q: "", sort: "updated", dir: "desc", selected: 0 };
-let data = { total: 0, items: [] };
+let data = { total: 0, items: [], sources: [] };
 let requestSeq = 0;
 let debounce;
 
@@ -48,7 +48,7 @@ function escapeRe(s) {
 }
 
 function highlight(text) {
-  const terms = state.q.trim().split(/\s+/).filter(Boolean).map(escapeRe);
+  const terms = state.q.trim().split(/\s+/).filter((t) => t && !t.startsWith("src:")).map(escapeRe);
   if (!terms.length) return [text];
   const re = new RegExp("(" + terms.join("|") + ")", "gi");
   return text.split(re).map((part, i) => (i % 2 ? el("mark", { textContent: part }) : part));
@@ -112,9 +112,11 @@ function compare(a, b) {
 }
 
 function row(item, index) {
+  const sub = el("div", { className: "slug" }, ...highlight(kind.sub(item)));
+  if (data.sources.length > 1) sub.prepend(el("span", { className: "source source-" + item.source, textContent: item.source }));
   const title = el("td", { className: "col-title" },
     el("a", { href: kind.link(item) }, ...highlight(item.title)),
-    el("div", { className: "slug" }, ...highlight(kind.sub(item))));
+    sub);
   if (item.snippet) title.append(el("div", { className: "snippet" }, ...highlight(item.snippet)));
   const tr = el("tr", {},
     title,
@@ -162,7 +164,7 @@ async function load() {
   const res = await fetch(kind.api + "?q=" + encodeURIComponent(state.q));
   if (!res.ok || id !== requestSeq) return;
   const body = await res.json();
-  data = { total: body.total, items: body[noun] };
+  data = { total: body.total, items: body[noun], sources: body.sources };
   render();
 }
 

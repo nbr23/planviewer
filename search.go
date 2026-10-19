@@ -14,19 +14,28 @@ const (
 var whitespaceRe = regexp.MustCompile(`\s+`)
 
 type query struct {
-	terms []*regexp.Regexp
+	terms  []*regexp.Regexp
+	source string
 }
 
 func parseQuery(q string) query {
 	var qu query
 	for _, f := range strings.Fields(q) {
+		if src, ok := strings.CutPrefix(f, "src:"); ok {
+			qu.source = strings.ToLower(src)
+			continue
+		}
 		qu.terms = append(qu.terms, regexp.MustCompile(`(?i)`+regexp.QuoteMeta(f)))
 	}
 	return qu
 }
 
 func (q query) empty() bool {
-	return len(q.terms) == 0
+	return len(q.terms) == 0 && q.source == ""
+}
+
+func (q query) allows(source string) bool {
+	return strings.HasPrefix(source, q.source)
 }
 
 func (q query) match(fields []string, body []byte) (string, bool) {
@@ -64,6 +73,9 @@ func filterPlans(plans []Plan, q query) []Plan {
 	}
 	out := plans[:0]
 	for _, p := range plans {
+		if !q.allows(p.Source) {
+			continue
+		}
 		if s, ok := q.match([]string{p.Title, p.Name, p.Project}, p.body); ok {
 			p.Snippet = s
 			out = append(out, p)
@@ -78,6 +90,9 @@ func filterSessions(sessions []Session, q query) []Session {
 	}
 	out := sessions[:0]
 	for _, s := range sessions {
+		if !q.allows(s.Source) {
+			continue
+		}
 		if snip, ok := q.match([]string{s.Title, s.Project, s.Branch, s.ID}, s.body); ok {
 			s.Snippet = snip
 			out = append(out, s)

@@ -35,6 +35,11 @@ var (
 	freshStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A7F37", Dark: "#3FB950"})
 	emphasisStyle = lipgloss.NewStyle().Bold(true)
 
+	sourceStyles = map[string]lipgloss.Style{
+		sourceClaude: lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#D97757")),
+		sourceCodex:  lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#10A37F")),
+	}
+
 	projectPalette = [...]lipgloss.AdaptiveColor{
 		{Light: "#0969DA", Dark: "#58A6FF"},
 		{Light: "#1A7F37", Dark: "#3FB950"},
@@ -79,6 +84,7 @@ type sortState struct {
 
 type listItem interface {
 	itemKey() string
+	itemSource() string
 	itemTitle() string
 	itemUpdated() time.Time
 	itemMeta(q query, sortKey string, now time.Time) (left, right []string)
@@ -92,8 +98,8 @@ type loadedMsg struct {
 }
 
 type model struct {
-	store         *Store
-	index         *TranscriptIndex
+	catalog       *Catalog
+	labelSources  bool
 	plans         []Plan
 	sessions      []Session
 	shown         []listItem
@@ -112,7 +118,7 @@ type model struct {
 	resume        string
 }
 
-func runProgram(store *Store, index *TranscriptIndex) error {
+func runProgram(catalog *Catalog) error {
 	style := os.Getenv("GLAMOUR_STYLE")
 	if style == "" {
 		style = "light"
@@ -123,7 +129,7 @@ func runProgram(store *Store, index *TranscriptIndex) error {
 	if _, err := glamour.NewTermRenderer(glamour.WithStylePath(style)); err != nil {
 		return fmt.Errorf("markdown style %q: %w", style, err)
 	}
-	final, err := tea.NewProgram(newModel(store, index, style), tea.WithAltScreen()).Run()
+	final, err := tea.NewProgram(newModel(catalog, style), tea.WithAltScreen()).Run()
 	if err != nil {
 		return err
 	}
@@ -133,17 +139,17 @@ func runProgram(store *Store, index *TranscriptIndex) error {
 	return nil
 }
 
-func newModel(store *Store, index *TranscriptIndex, style string) model {
+func newModel(catalog *Catalog, style string) model {
 	in := textinput.New()
 	in.Prompt = "> "
 	in.PromptStyle = barStyle
 	in.Placeholder = listKinds[plansMode].placeholder
 	in.Focus()
 	m := model{
-		store: store,
-		index: index,
-		input: in,
-		pager: newPager(style),
+		catalog:      catalog,
+		labelSources: len(catalog.Sources()) > 1,
+		input:        in,
+		pager:        newPager(style),
 	}
 	for i := range m.sorts {
 		m.sorts[i].desc = true
@@ -171,15 +177,10 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) load() tea.Cmd {
-	store, index := m.store, m.index
+	c := m.catalog
 	return func() tea.Msg {
-		plans, err := store.List()
-		var sessions []Session
-		if index != nil {
-			index.Refresh()
-			sessions = index.Sessions()
-		}
-		return loadedMsg{plans, sessions, err}
+		plans, err := c.Plans()
+		return loadedMsg{plans, c.Sessions(), err}
 	}
 }
 
@@ -295,20 +296,26 @@ func (m model) open() (tea.Model, tea.Cmd) {
 
 func (m model) document(key string) (document, error) {
 	now := time.Now()
+	var doc document
+	var source string
 	if m.mode == sessionsMode {
-		m.index.Refresh()
-		s, ok := m.index.Session(key)
+		s, ok := m.catalog.Session(key)
 		if !ok {
 			return document{}, errSessionNotFound
 		}
 		home, _ := os.UserHomeDir()
-		return sessionDocument(s, now, home), nil
+		doc, source = sessionDocument(s, now, home), s.Source
+	} else {
+		p, err := m.catalog.Plan(key)
+		if err != nil {
+			return document{}, err
+		}
+		doc, source = planDocument(p, now), p.Source
 	}
-	p, err := m.store.Get(key)
-	if err != nil {
-		return document{}, err
+	if m.labelSources {
+		doc.meta = append([]string{source}, doc.meta...)
 	}
-	return planDocument(p, now), nil
+	return doc, nil
 }
 
 func planDocument(p Plan, now time.Time) document {
@@ -343,7 +350,7 @@ func sessionDocument(s Session, now time.Time, home string) document {
 }
 
 func (m *model) toggleMode() {
-	if m.index == nil {
+	if !m.catalog.HasSessions() {
 		m.status = "no transcripts directory, sessions unavailable"
 		return
 	}
@@ -490,7 +497,7 @@ func (m model) footerView() string {
 		return errorStyle.Render(m.status)
 	}
 	toggle := ""
-	if m.index != nil {
+	if m.catalog.HasSessions() {
 		toggle = " · ctrl+t " + listKinds[(m.mode+1)%listMode(len(listKinds))].noun
 	}
 	return mutedStyle.Render("↑/↓ move · enter open · tab sort · shift+tab reverse" + toggle + " · ctrl+r reload · esc clear/quit")
@@ -522,6 +529,9 @@ func (m model) itemLines(it listItem, selected bool, now time.Time) []string {
 	sortKey := m.sortKey()
 	updated := recencyStyle(it.itemUpdated(), now).Bold(sortKey == "updated").Render(relativeTime(it.itemUpdated(), now))
 	left, right := it.itemMeta(m.q, sortKey, now)
+	if m.labelSources {
+		left = append([]string{sourceStyles[it.itemSource()].Render(it.itemSource())}, left...)
+	}
 	lines := []string{
 		bar + spread(m.q.highlight(it.itemTitle(), title), updated, width),
 		bar + spread(strings.Join(left, "  "), strings.Join(right, mutedStyle.Render(" · ")), width),
@@ -562,6 +572,7 @@ func metaStyle(emphasized bool) lipgloss.Style {
 }
 
 func (p Plan) itemKey() string        { return p.Name }
+func (p Plan) itemSource() string     { return p.Source }
 func (p Plan) itemTitle() string      { return p.Title }
 func (p Plan) itemUpdated() time.Time { return p.Updated }
 func (p Plan) itemSnippet() string    { return p.Snippet }
@@ -586,6 +597,7 @@ func (p Plan) createdLabel(now time.Time) string {
 }
 
 func (s Session) itemKey() string        { return s.ID }
+func (s Session) itemSource() string     { return s.Source }
 func (s Session) itemTitle() string      { return s.Title }
 func (s Session) itemUpdated() time.Time { return s.Updated }
 func (s Session) itemSnippet() string    { return s.Snippet }

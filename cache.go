@@ -36,11 +36,17 @@ type cachedSession struct {
 	FirstPrompt          string
 	Created, Updated     time.Time
 	Turns                []cachedTurn
+	Plans                []cachedPlan
 	Body                 []byte
 }
 
 type cachedTurn struct {
 	User bool
+	At   time.Time
+	Text string
+}
+
+type cachedPlan struct {
 	At   time.Time
 	Text string
 }
@@ -124,10 +130,14 @@ func (b *sessionBuilder) cached() *cachedSession {
 		Created:     b.created,
 		Updated:     b.updated,
 		Turns:       make([]cachedTurn, len(b.turns)),
+		Plans:       make([]cachedPlan, len(b.plans)),
 		Body:        b.body,
 	}
 	for i, tr := range b.turns {
 		c.Turns[i] = cachedTurn{User: tr.user, At: tr.at, Text: tr.text}
+	}
+	for i, sp := range b.plans {
+		c.Plans[i] = cachedPlan{At: sp.at, Text: sp.text}
 	}
 	return c
 }
@@ -143,10 +153,14 @@ func (c *cachedSession) builder() *sessionBuilder {
 		created:     c.Created,
 		updated:     c.Updated,
 		turns:       make([]turn, len(c.Turns)),
+		plans:       make([]sessionPlan, len(c.Plans)),
 		body:        c.Body,
 	}
 	for i, tr := range c.Turns {
 		b.turns[i] = turn{user: tr.User, at: tr.At, text: tr.Text}
+	}
+	for i, sp := range c.Plans {
+		b.plans[i] = sessionPlan{at: sp.At, text: sp.Text}
 	}
 	return b
 }

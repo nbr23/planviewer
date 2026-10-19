@@ -19,6 +19,7 @@
 </header>
 <main class="plan">
   <div class="meta muted">
+    {{- if .ShowSource}}<span class="source source-{{.Source}}">{{.Source}}</span>{{end}}
     <span class="slug">{{.Name}}</span>
     {{- if .Project}}<span>{{.Project}}</span>{{end}}
     <span>Created <time datetime="{{.Created.Format "2006-01-02T15:04:05Z07:00"}}">{{.Created.Format "2006-01-02 15:04"}}</time>{{if not .CreatedExact}} (approx.){{end}}</span>

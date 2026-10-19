@@ -21,6 +21,7 @@ var (
 
 type Plan struct {
 	Name         string    `json:"name"`
+	Source       string    `json:"source"`
 	Title        string    `json:"title"`
 	Created      time.Time `json:"created"`
 	CreatedExact bool      `json:"createdExact"`
@@ -146,6 +147,7 @@ func (s *Store) load(name string, info fs.FileInfo) (*cachedFile, error) {
 func (s *Store) plan(name string, cf *cachedFile) Plan {
 	p := Plan{
 		Name:    name,
+		Source:  sourceClaude,
 		Title:   cf.title,
 		Created: cf.mtime.UTC(),
 		Updated: cf.mtime.UTC(),

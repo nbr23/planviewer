@@ -23,19 +23,20 @@ var webFS embed.FS
 const contentSecurityPolicy = "default-src 'self'; img-src 'self' data: https:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
 type Server struct {
-	store *Store
-	index *TranscriptIndex
-	md    goldmark.Markdown
-	tmpl  *template.Template
+	catalog *Catalog
+	md      goldmark.Markdown
+	tmpl    *template.Template
 }
 
 type listResponse struct {
-	Transcripts bool   `json:"transcripts"`
-	Total       int    `json:"total"`
-	Plans       []Plan `json:"plans"`
+	Transcripts bool     `json:"transcripts"`
+	Sources     []string `json:"sources"`
+	Total       int      `json:"total"`
+	Plans       []Plan   `json:"plans"`
 }
 
 type sessionListResponse struct {
+	Sources  []string  `json:"sources"`
 	Total    int       `json:"total"`
 	Sessions []Session `json:"sessions"`
 }
@@ -51,8 +52,9 @@ type indexPage struct {
 
 type planPage struct {
 	Plan
-	HTML template.HTML
-	Raw  string
+	HTML       template.HTML
+	Raw        string
+	ShowSource bool
 }
 
 type turnView struct {
@@ -63,8 +65,9 @@ type turnView struct {
 
 type sessionPage struct {
 	Session
-	Turns  []turnView
-	Resume string
+	Turns      []turnView
+	Resume     string
+	ShowSource bool
 }
 
 var (
@@ -72,14 +75,13 @@ var (
 	sessionsIndex = indexPage{Kind: "sessions", Title: "Sessions", Placeholder: listKinds[sessionsMode].placeholder, CountKey: "messages", CountLabel: "Messages"}
 )
 
-func NewServer(store *Store, index *TranscriptIndex) (*Server, error) {
+func NewServer(catalog *Catalog) (*Server, error) {
 	tmpl, err := template.ParseFS(webFS, "web/*.html")
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
-		store: store,
-		index: index,
+		catalog: catalog,
 		md: goldmark.New(
 			goldmark.WithExtensions(extension.GFM),
 			goldmark.WithParserOptions(parser.WithAutoHeadingID()),
@@ -95,7 +97,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/plans", s.handleList)
 	mux.HandleFunc("GET /p/{name}", s.handlePlan)
 	mux.HandleFunc("GET /raw/{name}", s.handleRaw)
-	if s.index != nil {
+	if s.catalog.HasSessions() {
 		mux.HandleFunc("GET /sessions", s.handleSessionsIndex)
 		mux.HandleFunc("GET /api/sessions", s.handleSessions)
 		mux.HandleFunc("GET /s/{id}", s.handleSession)
@@ -116,7 +118,7 @@ func securityHeaders(next http.Handler) http.Handler {
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	page := plansIndex
-	page.Transcripts = s.index != nil
+	page.Transcripts = s.catalog.HasSessions()
 	s.execute(w, "index.html", page)
 }
 
@@ -127,7 +129,7 @@ func (s *Server) handleSessionsIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	plans, err := s.store.List()
+	plans, err := s.catalog.Plans()
 	if err != nil {
 		log.Printf("list plans: %v", err)
 		http.Error(w, "cannot read plans directory", http.StatusInternalServerError)
@@ -135,15 +137,14 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	total := len(plans)
 	plans = filterPlans(plans, parseQuery(r.URL.Query().Get("q")))
-	writeJSON(w, listResponse{Transcripts: s.index != nil, Total: total, Plans: plans})
+	writeJSON(w, listResponse{Transcripts: s.catalog.HasSessions(), Sources: s.catalog.Sources(), Total: total, Plans: plans})
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	s.index.Refresh()
-	sessions := s.index.Sessions()
+	sessions := s.catalog.Sessions()
 	total := len(sessions)
 	sessions = filterSessions(sessions, parseQuery(r.URL.Query().Get("q")))
-	writeJSON(w, sessionListResponse{Total: total, Sessions: sessions})
+	writeJSON(w, sessionListResponse{Sources: s.catalog.Sources(), Total: total, Sessions: sessions})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -163,18 +164,17 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot render plan", http.StatusInternalServerError)
 		return
 	}
-	s.execute(w, "plan.html", planPage{Plan: p, HTML: html, Raw: string(p.body)})
+	s.execute(w, "plan.html", planPage{Plan: p, HTML: html, Raw: string(p.body), ShowSource: s.showSource()})
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
-	s.index.Refresh()
-	sess, ok := s.index.Session(r.PathValue("id"))
+	sess, ok := s.catalog.Session(r.PathValue("id"))
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 	home, _ := os.UserHomeDir()
-	page := sessionPage{Session: sess, Resume: sess.resumeCommand(home)}
+	page := sessionPage{Session: sess, Resume: sess.resumeCommand(home), ShowSource: s.showSource()}
 	for _, t := range sess.turns {
 		html, err := s.render([]byte(t.text))
 		if err != nil {
@@ -182,13 +182,17 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot render session", http.StatusInternalServerError)
 			return
 		}
-		who := "Claude"
+		who := sess.agentName()
 		if t.user {
 			who = "You"
 		}
 		page.Turns = append(page.Turns, turnView{Who: who, At: t.at, HTML: html})
 	}
 	s.execute(w, "session.html", page)
+}
+
+func (s *Server) showSource() bool {
+	return len(s.catalog.Sources()) > 1
 }
 
 func (s *Server) render(md []byte) (template.HTML, error) {
@@ -218,7 +222,7 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) lookup(w http.ResponseWriter, r *http.Request) (Plan, bool) {
-	p, err := s.store.Get(r.PathValue("name"))
+	p, err := s.catalog.Plan(r.PathValue("name"))
 	if errors.Is(err, errNotFound) {
 		http.NotFound(w, r)
 		return Plan{}, false

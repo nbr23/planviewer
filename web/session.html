@@ -17,6 +17,7 @@
 <main class="plan">
   <h1 class="session-title">{{.Title}}</h1>
   <div class="meta muted">
+    {{- if .ShowSource}}<span class="source source-{{.Source}}">{{.Source}}</span>{{end}}
     <span class="slug">{{.ID}}</span>
     {{- if .Project}}<span>{{.Project}}</span>{{end}}
     {{- if .Branch}}<span>{{.Branch}}</span>{{end}}

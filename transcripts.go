@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +28,18 @@ type transcriptFile struct {
 	session *sessionBuilder
 }
 
+type transcriptFormat interface {
+	source() string
+	open(t *TranscriptIndex, p string) *sessionBuilder
+	indexLine(t *TranscriptIndex, line []byte, tf *transcriptFile)
+}
+
+type claudeFormat struct{}
+
 type TranscriptIndex struct {
 	root      string
+	format    transcriptFormat
+	titles    *codexTitles
 	interval  time.Duration
 	mu        sync.Mutex
 	last      time.Time
@@ -78,8 +89,13 @@ var (
 )
 
 func NewTranscriptIndex(root string, interval time.Duration) *TranscriptIndex {
+	return newTranscriptIndex(root, claudeFormat{}, interval)
+}
+
+func newTranscriptIndex(root string, format transcriptFormat, interval time.Duration) *TranscriptIndex {
 	return &TranscriptIndex{
 		root:     filepath.Clean(root),
+		format:   format,
 		interval: interval,
 		files:    map[string]*transcriptFile{},
 		origins:  map[string]Origin{},
@@ -100,7 +116,7 @@ func (t *TranscriptIndex) Sessions() []Session {
 	out := make([]Session, 0, len(t.sessions))
 	for _, b := range t.sessions {
 		if len(b.turns) > 0 {
-			out = append(out, b.snapshot(false))
+			out = append(out, t.snapshot(b, false))
 		}
 	}
 	slices.SortFunc(out, func(a, b Session) int { return b.Updated.Compare(a.Updated) })
@@ -114,7 +130,66 @@ func (t *TranscriptIndex) Session(id string) (Session, bool) {
 	if !ok || len(b.turns) == 0 {
 		return Session{}, false
 	}
-	return b.snapshot(true), true
+	return t.snapshot(b, true), true
+}
+
+func (t *TranscriptIndex) snapshot(b *sessionBuilder, withTurns bool) Session {
+	s := b.snapshot(withTurns)
+	s.Source = t.format.source()
+	if t.titles != nil {
+		if title := t.titles.names[b.id]; title != "" {
+			s.Title = title
+		}
+	}
+	return s
+}
+
+func (t *TranscriptIndex) Plans() []Plan {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var out []Plan
+	for _, b := range t.sessions {
+		for i := range b.plans {
+			out = append(out, t.plan(b, i))
+		}
+	}
+	return out
+}
+
+func (t *TranscriptIndex) Plan(name string) (Plan, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, b := range t.sessions {
+		for i := range b.plans {
+			if planName(b.id, i) == name {
+				return t.plan(b, i), true
+			}
+		}
+	}
+	return Plan{}, false
+}
+
+func (t *TranscriptIndex) plan(b *sessionBuilder, i int) Plan {
+	sp := b.plans[i]
+	name := planName(b.id, i)
+	return Plan{
+		Name:         name,
+		Source:       t.format.source(),
+		Title:        extractTitle(name, []byte(sp.text)),
+		Created:      sp.at,
+		CreatedExact: true,
+		Updated:      sp.at,
+		Project:      projectName(b.cwd),
+		Size:         int64(len(sp.text)),
+		body:         []byte(sp.text),
+	}
+}
+
+func planName(sessionID string, i int) string {
+	if i == 0 {
+		return sessionID
+	}
+	return sessionID + "-" + strconv.Itoa(i+1)
 }
 
 func (t *TranscriptIndex) Refresh() {
@@ -147,17 +222,17 @@ func (t *TranscriptIndex) Refresh() {
 			delete(t.sessions, tf.session.id)
 		}
 	}
+	if t.titles != nil {
+		t.titles.refresh()
+	}
 	if t.dirty && t.cachePath != "" {
 		t.saveCache()
 	}
 }
 
-func (t *TranscriptIndex) newSession(p string) *sessionBuilder {
-	if filepath.Dir(filepath.Dir(p)) != t.root {
-		return nil
-	}
-	b := &sessionBuilder{id: strings.TrimSuffix(filepath.Base(p), ".jsonl")}
-	t.sessions[b.id] = b
+func (t *TranscriptIndex) addSession(id string) *sessionBuilder {
+	b := &sessionBuilder{id: id}
+	t.sessions[id] = b
 	return b
 }
 
@@ -173,7 +248,7 @@ func (t *TranscriptIndex) scanFile(p string, info fs.FileInfo) {
 	}
 	defer f.Close()
 	if !ok || info.Size() < tf.offset || !bytes.Equal(readTail(f, tf.offset), tf.tail) {
-		tf = &transcriptFile{session: t.newSession(p)}
+		tf = &transcriptFile{session: t.format.open(t, p)}
 		t.files[p] = tf
 	}
 	tf.mtime = info.ModTime()
@@ -188,7 +263,7 @@ func (t *TranscriptIndex) scanFile(p string, info fs.FileInfo) {
 			break
 		}
 		tf.offset += int64(len(line))
-		t.indexLine(line, tf.session)
+		t.format.indexLine(t, line, tf)
 	}
 	tf.tail = readTail(f, tf.offset)
 }
@@ -201,9 +276,18 @@ func readTail(f *os.File, offset int64) []byte {
 	return buf
 }
 
-func (t *TranscriptIndex) indexLine(line []byte, session *sessionBuilder) {
+func (claudeFormat) source() string { return sourceClaude }
+
+func (claudeFormat) open(t *TranscriptIndex, p string) *sessionBuilder {
+	if filepath.Dir(filepath.Dir(p)) != t.root {
+		return nil
+	}
+	return t.addSession(strings.TrimSuffix(filepath.Base(p), ".jsonl"))
+}
+
+func (claudeFormat) indexLine(t *TranscriptIndex, line []byte, tf *transcriptFile) {
 	origin := bytes.Contains(line, planPathMarker) && bytes.Contains(line, writeMarker)
-	if !origin && (session == nil || !sessionLine(line)) {
+	if !origin && (tf.session == nil || !sessionLine(line)) {
 		return
 	}
 	var rec transcriptRecord
@@ -213,8 +297,8 @@ func (t *TranscriptIndex) indexLine(line []byte, session *sessionBuilder) {
 	if origin {
 		t.indexOrigin(&rec)
 	}
-	if session != nil {
-		session.add(&rec)
+	if tf.session != nil {
+		tf.session.add(&rec)
 	}
 }
 

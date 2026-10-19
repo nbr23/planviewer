@@ -81,8 +81,8 @@ func TestStoreListAndGet(t *testing.T) {
 func TestFilterPlans(t *testing.T) {
 	plans := func() []Plan {
 		return []Plan{
-			{Name: "a.md", Title: "Goodreads live feed", body: []byte("# Goodreads live feed\nnothing")},
-			{Name: "b.md", Title: "Persian rugs", Project: "vacuum", body: []byte("# Persian rugs\nThe fringe catches on the BRUSH roll.")},
+			{Name: "a.md", Source: sourceClaude, Title: "Goodreads live feed", body: []byte("# Goodreads live feed\nnothing")},
+			{Name: "b.md", Source: sourceCodex, Title: "Persian rugs", Project: "vacuum", body: []byte("# Persian rugs\nThe fringe catches on the BRUSH roll.")},
 		}
 	}
 	tests := []struct {
@@ -97,6 +97,10 @@ func TestFilterPlans(t *testing.T) {
 		{"vacuum", []string{"b.md"}, false},
 		{"rugs goodreads", nil, false},
 		{"a+b(", nil, false},
+		{"src:codex", []string{"b.md"}, false},
+		{"src:cl", []string{"a.md"}, false},
+		{"src:claude brush", nil, false},
+		{"src: goodreads", []string{"a.md"}, false},
 	}
 	for _, tt := range tests {
 		got := filterPlans(plans(), parseQuery(tt.q))
