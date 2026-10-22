@@ -27,6 +27,7 @@ type Plan struct {
 	CreatedExact bool       `json:"createdExact"`
 	Updated      time.Time  `json:"updated"`
 	Project      string     `json:"project,omitempty"`
+	Session      string     `json:"session,omitempty"`
 	Size         int64      `json:"size"`
 	Status       planStatus `json:"status,omitempty"`
 	Snippet      string     `json:"snippet,omitempty"`
@@ -162,6 +163,7 @@ func (s *Store) plan(name string, cf *cachedFile) Plan {
 		p.Created = o.Created
 		p.CreatedExact = true
 		p.Project = o.Project
+		p.Session = o.Session
 		p.Status = statusDraft
 	}
 	if st := s.origins.Status(name); st != "" {

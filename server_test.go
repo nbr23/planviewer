@@ -23,7 +23,7 @@ func TestServerAgyRoutes(t *testing.T) {
 	}
 
 	name := agyMain + "/implementation_plan.md"
-	if code, body := get("/p/" + url.PathEscape(name)); code != http.StatusOK || !strings.Contains(body, "Vacuum first.") || !strings.Contains(body, `href="/raw/`+name+`"`) {
+	if code, body := get("/p/" + url.PathEscape(name)); code != http.StatusOK || !strings.Contains(body, "Vacuum first.") || !strings.Contains(body, `href="/raw/`+name+`"`) || !strings.Contains(body, `href="/s/`+agyMain+`"`) {
 		t.Fatalf("plan page: %d\n%s", code, body)
 	}
 	if code, body := get("/raw/" + name); code != http.StatusOK || body != "# Rug plan\n\nVacuum first.\n" {

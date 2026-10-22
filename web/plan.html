@@ -22,6 +22,7 @@
     {{- if .ShowSource}}<span class="source source-{{.Source}}">{{.Source}}</span>{{end}}
     <span class="slug">{{.Name}}</span>
     {{- if .Project}}<span>{{.Project}}</span>{{end}}
+    {{- if .Session}}<span>Session <span class="slug">{{if .SessionLink}}<a href="/s/{{.Session}}">{{.Session}}</a>{{else}}{{.Session}}{{end}}</span></span>{{end}}
     {{- if .Status}}<span class="status" data-status="{{.Status}}">{{.Status}}</span>{{end}}
     <span>Created <time datetime="{{.Created.Format "2006-01-02T15:04:05Z07:00"}}">{{.Created.Format "2006-01-02 15:04"}}</time>{{if not .CreatedExact}} (approx.){{end}}</span>
     <span>Updated <time datetime="{{.Updated.Format "2006-01-02T15:04:05Z07:00"}}">{{.Updated.Format "2006-01-02 15:04"}}</time></span>

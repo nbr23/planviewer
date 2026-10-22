@@ -81,7 +81,7 @@ func filterPlans(plans []Plan, q query) []Plan {
 		if !q.allows(p.Source) || !strings.HasPrefix(string(p.Status), q.status) {
 			continue
 		}
-		if s, ok := q.match([]string{p.Title, p.Name, p.Project}, p.body); ok {
+		if s, ok := q.match([]string{p.Title, p.Name, p.Project, p.Session}, p.body); ok {
 			p.Snippet = s
 			out = append(out, p)
 		}

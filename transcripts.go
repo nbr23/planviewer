@@ -19,6 +19,7 @@ import (
 type Origin struct {
 	Created time.Time
 	Project string
+	Session string
 }
 
 type transcriptFile struct {
@@ -61,6 +62,7 @@ type TranscriptIndex struct {
 type transcriptRecord struct {
 	Type             string    `json:"type"`
 	Timestamp        time.Time `json:"timestamp"`
+	SessionID        string    `json:"sessionId"`
 	Cwd              string    `json:"cwd"`
 	GitBranch        string    `json:"gitBranch"`
 	IsSidechain      bool      `json:"isSidechain"`
@@ -230,6 +232,7 @@ func (t *TranscriptIndex) plan(b *sessionBuilder, i int) Plan {
 		CreatedExact: true,
 		Updated:      sp.at,
 		Project:      projectName(b.cwd),
+		Session:      b.id,
 		Size:         int64(len(sp.text)),
 		Status:       r.status,
 		body:         []byte(sp.text),
@@ -358,7 +361,11 @@ func (claudeFormat) indexLine(t *TranscriptIndex, line []byte, tf *transcriptFil
 		return
 	}
 	if origin {
-		if name := t.indexOrigin(&rec); name != "" && b != nil && !rec.IsSidechain {
+		session := rec.SessionID
+		if b != nil {
+			session = b.id
+		}
+		if name := t.indexOrigin(&rec, session); name != "" && b != nil && !rec.IsSidechain {
 			b.planFile = name
 		}
 	}
@@ -411,7 +418,7 @@ func sessionLine(line []byte) bool {
 	return bytes.Contains(line, textMarker) || bytes.Contains(line, aiTitleMarker) || bytes.Contains(line, customTitleMarker)
 }
 
-func (t *TranscriptIndex) indexOrigin(rec *transcriptRecord) (name string) {
+func (t *TranscriptIndex) indexOrigin(rec *transcriptRecord, session string) (name string) {
 	var blocks []contentBlock
 	if json.Unmarshal(rec.Message.Content, &blocks) != nil {
 		return ""
@@ -424,7 +431,7 @@ func (t *TranscriptIndex) indexOrigin(rec *transcriptRecord) (name string) {
 		if cur, ok := t.origins[name]; rec.Timestamp.IsZero() || ok && !rec.Timestamp.Before(cur.Created) {
 			continue
 		}
-		t.origins[name] = Origin{Created: rec.Timestamp, Project: projectName(rec.Cwd)}
+		t.origins[name] = Origin{Created: rec.Timestamp, Project: projectName(rec.Cwd), Session: session}
 	}
 	return name
 }

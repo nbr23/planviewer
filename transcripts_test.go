@@ -53,13 +53,13 @@ func TestTranscriptIndex(t *testing.T) {
 	appendFile(t, session, writeRecord("2026-09-02T10:00:00Z", "/home/u/dev/app", "/home/u/.claude/plans/brave-red-fox.md"))
 	appendFile(t, session, `{"type":"user","message":{"content":"mention /plans/ and \"Write\" in a string"}}`+"\n")
 	appendFile(t, session, writeRecord("2026-09-01T09:00:00Z", "/home/u/dev/other", "/home/u/dev/other/docs/notes.md"))
-	appendFile(t, sub, writeRecord("2026-09-01T08:00:00Z", "/home/u/dev/app", "/home/u/.claude/plans/brave-red-fox.md"))
+	appendFile(t, sub, strings.Replace(writeRecord("2026-09-01T08:00:00Z", "/home/u/dev/app", "/home/u/.claude/plans/brave-red-fox.md"), "{", `{"sessionId":"parent",`, 1))
 
 	idx := NewTranscriptIndex(root, 0)
 	idx.Refresh()
 
 	o, ok := idx.Lookup("brave-red-fox.md")
-	if !ok || !o.Created.Equal(time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)) || o.Project != "app" {
+	if !ok || !o.Created.Equal(time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)) || o.Project != "app" || o.Session != "parent" {
 		t.Fatalf("Lookup(brave-red-fox.md) = %+v, %v", o, ok)
 	}
 	if _, ok := idx.Lookup("notes.md"); ok {
@@ -75,7 +75,7 @@ func TestTranscriptIndex(t *testing.T) {
 
 	appendFile(t, session, partial[len(partial)/2:])
 	idx.Refresh()
-	if o, ok := idx.Lookup("late-plan.md"); !ok || o.Project != "late" {
+	if o, ok := idx.Lookup("late-plan.md"); !ok || o.Project != "late" || o.Session != "sess" {
 		t.Fatalf("appended line not picked up: %+v, %v", o, ok)
 	}
 }

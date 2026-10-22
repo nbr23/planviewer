@@ -117,7 +117,7 @@ func TestCodexIndex(t *testing.T) {
 		t.Fatalf("plans = %v", got)
 	}
 	p := plans[0]
-	if p.Source != sourceCodex || p.Title != "Rug plan" || p.Project != "app" || !p.CreatedExact ||
+	if p.Source != sourceCodex || p.Title != "Rug plan" || p.Project != "app" || p.Session != "new-1" || !p.CreatedExact ||
 		!p.Created.Equal(time.Date(2026, 9, 1, 10, 0, 6, 0, time.UTC)) || string(p.body) != "# Rug plan\n\nVacuum first." {
 		t.Fatalf("plan = %+v", p)
 	}

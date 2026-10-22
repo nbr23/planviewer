@@ -310,12 +310,12 @@ func (m model) document(key string) (document, error) {
 	now := time.Now()
 	var doc document
 	var source string
+	home, _ := os.UserHomeDir()
 	if m.mode == sessionsMode {
 		s, ok := m.catalog.Session(key)
 		if !ok {
 			return document{}, errSessionNotFound
 		}
-		home, _ := os.UserHomeDir()
 		doc, source = sessionDocument(s, now, home), s.Source
 	} else {
 		p, err := m.catalog.Plan(key)
@@ -323,6 +323,11 @@ func (m model) document(key string) (document, error) {
 			return document{}, err
 		}
 		doc, source = planDocument(p, now), p.Source
+		if s, ok := m.catalog.Session(p.Session); ok {
+			doc.resume = s.resumeCommand(home)
+		} else if p.Session != "" {
+			doc.meta = append(doc.meta, "session "+p.Session)
+		}
 	}
 	if m.labelSources {
 		doc.meta = append([]string{source}, doc.meta...)

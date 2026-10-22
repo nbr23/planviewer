@@ -43,7 +43,7 @@ var (
 		{"n / N", "next match / previous match"},
 		{"%", "go to percent"},
 		{"J", "go to line"},
-		{"r", "print resume command and quit (sessions)"},
+		{"r", "print resume command and quit (sessions, plans with a known session)"},
 		{"h", "this help"},
 		{"q esc", "back to the list"},
 		{"ctrl+c", "quit"},

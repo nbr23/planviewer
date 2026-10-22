@@ -52,9 +52,10 @@ type indexPage struct {
 
 type planPage struct {
 	Plan
-	HTML       template.HTML
-	Raw        string
-	ShowSource bool
+	HTML        template.HTML
+	Raw         string
+	ShowSource  bool
+	SessionLink bool
 }
 
 type turnView struct {
@@ -164,7 +165,8 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot render plan", http.StatusInternalServerError)
 		return
 	}
-	s.execute(w, "plan.html", planPage{Plan: p, HTML: html, Raw: string(p.body), ShowSource: s.showSource()})
+	_, linked := s.catalog.Session(p.Session)
+	s.execute(w, "plan.html", planPage{Plan: p, HTML: html, Raw: string(p.body), ShowSource: s.showSource(), SessionLink: linked})
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {

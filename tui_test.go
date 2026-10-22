@@ -254,6 +254,42 @@ func TestModelSessionsSearchOpenAndResume(t *testing.T) {
 	}
 }
 
+func TestModelPlanShowsLinkedSession(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	plansDir, root := t.TempDir(), t.TempDir()
+	proj := filepath.Join(root, "-home-u-dev-app")
+	if err := os.MkdirAll(filepath.Join(proj, "gone", "subagents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, filepath.Join(proj, "sess-1.jsonl"),
+		userLine("2026-09-01T10:00:00Z", "plan the rugs")+
+			writeRecord("2026-09-01T10:00:01Z", "/home/u/dev/app", "/home/u/.claude/plans/rugs.md"))
+	appendFile(t, filepath.Join(proj, "gone", "subagents", "agent.jsonl"),
+		strings.Replace(writeRecord("2026-09-01T11:00:00Z", "/home/u/dev/app", "/home/u/.claude/plans/orphan.md"), "{", `{"sessionId":"gone",`, 1))
+	for name, body := range map[string]string{"rugs.md": "# Rugs\n", "orphan.md": "# Orphan\n"} {
+		if err := os.WriteFile(filepath.Join(plansDir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	idx := NewTranscriptIndex(root, 0)
+	m := newModel(NewCatalog(NewStore(plansDir, idx), nil, idx), "notty")
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30}, m.load()(), typeText("rugs"), tea.KeyMsg{Type: tea.KeyEnter})
+	v := ansi.Strip(m.View())
+	if header := strings.Split(v, "\n"); m.screen != pagerScreen || strings.TrimSpace(header[2]) != "cd ~/dev/app && claude --resume sess-1" {
+		t.Fatalf("plan view lacks the linked session's resume command:\n%s", v)
+	}
+	next, cmd := m.Update(typeText("r"))
+	if m = next.(model); cmd == nil || cmd() != tea.Quit() || m.resume != "cd ~/dev/app && claude --resume sess-1" {
+		t.Fatalf("r: resume=%q", m.resume)
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc}, tea.KeyMsg{Type: tea.KeyEsc}, typeText("orphan"), tea.KeyMsg{Type: tea.KeyEnter})
+	if v := ansi.Strip(m.View()); m.screen != pagerScreen || !strings.Contains(v, " · session gone") || strings.Contains(v, "r resume") {
+		t.Fatalf("plan with an unknown session:\n%s", v)
+	}
+}
+
 func TestModelToggleWithoutTranscripts(t *testing.T) {
 	m := update(t, newModel(NewCatalog(NewStore(t.TempDir(), nil), nil), "notty"),
 		tea.WindowSizeMsg{Width: 100, Height: 30},

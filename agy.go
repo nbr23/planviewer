@@ -457,6 +457,7 @@ func (a *artifactStore) plan(name string, af *artifactFile) Plan {
 		Created: af.updated,
 		Updated: af.updated,
 		Project: projectName(a.index.cwd(id)),
+		Session: id,
 		Size:    int64(len(af.body)),
 		Status:  a.index.Status(name),
 		body:    af.body,

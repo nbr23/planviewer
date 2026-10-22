@@ -212,7 +212,7 @@ func TestAgyArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Source != sourceAgy || p.Title != "Rug plan" || p.Project != "app" || !p.CreatedExact ||
+	if p.Source != sourceAgy || p.Title != "Rug plan" || p.Project != "app" || p.Session != agyMain || !p.CreatedExact ||
 		!p.Created.Equal(time.Date(2026, 9, 1, 10, 0, 1, 0, time.UTC)) || !p.Updated.Equal(time.Date(2026, 9, 1, 10, 30, 0, 5e8, time.UTC)) {
 		t.Fatalf("plan = %+v", p)
 	}
