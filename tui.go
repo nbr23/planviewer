@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -34,6 +35,7 @@ var (
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#C0392B", Dark: "#FF6B6B"})
 	freshStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1A7F37", Dark: "#3FB950"})
 	emphasisStyle = lipgloss.NewStyle().Bold(true)
+	rowStyle      = lipgloss.NewStyle().Background(panelBg)
 
 	sourceStyles = map[string]lipgloss.Style{
 		sourceClaude: lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#D97757")),
@@ -153,6 +155,7 @@ func newModel(catalog *Catalog, style string) model {
 	in.Prompt = "> "
 	in.PromptStyle = barStyle
 	in.Placeholder = listKinds[plansMode].placeholder
+	in.Cursor.SetMode(cursor.CursorStatic)
 	in.Focus()
 	m := model{
 		catalog:      catalog,
@@ -182,7 +185,7 @@ func (m model) total() int {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.load(), textinput.Blink)
+	return m.load()
 }
 
 func (m model) load() tea.Cmd {
@@ -551,7 +554,23 @@ func (m model) itemLines(it listItem, selected bool, now time.Time) []string {
 	if s := it.itemSnippet(); s != "" {
 		lines = append(lines, bar+m.q.highlight(s, mutedStyle))
 	}
+	if selected {
+		for i, l := range lines {
+			lines[i] = fillRow(l, m.width)
+		}
+	}
 	return append(lines, "")
+}
+
+func fillRow(line string, width int) string {
+	line = ansi.Truncate(line, width, "…")
+	line += strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
+	// lipgloss ends every styled segment with a full reset, which would drop the row background after the first one
+	parts := strings.Split(line, "\x1b[0m")
+	for i, p := range parts {
+		parts[i] = rowStyle.Render(p)
+	}
+	return strings.Join(parts, "")
 }
 
 func spread(left, right string, width int) string {

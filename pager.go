@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -109,6 +110,7 @@ type pager struct {
 func newPager(style string) pager {
 	in := textinput.New()
 	in.PromptStyle, in.TextStyle, in.Cursor.TextStyle = statusBarStyle, statusBarStyle, statusBarStyle
+	in.Cursor.SetMode(cursor.CursorStatic)
 	return pager{style: style, input: in, cur: -1, height: 1}
 }
 

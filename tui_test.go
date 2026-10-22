@@ -9,7 +9,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 func TestParseCommand(t *testing.T) {
@@ -348,5 +350,40 @@ func TestItemLines(t *testing.T) {
 	p := Plan{Name: "brave-fox.md", Title: "Rugs", Project: "app", Size: 2048, Created: now.Add(-48 * time.Hour), CreatedExact: true, Updated: now, Status: statusWorked}
 	if l := ansi.Strip(m.itemLines(p, false, now)[1]); !strings.HasSuffix(l, " worked on · 2.0 KB · created 2d ago") {
 		t.Errorf("plan meta line = %q", l)
+	}
+
+	s.Snippet = "short"
+	sel := m.itemLines(s, true, now)
+	for i, l := range sel[:3] {
+		if w := ansi.StringWidth(l); w != 60 {
+			t.Errorf("selected line %d width = %d, want 60: %q", i, w, ansi.Strip(l))
+		}
+	}
+	if sel[3] != "" {
+		t.Errorf("selected separator = %q, want empty", sel[3])
+	}
+}
+
+func TestFillRowKeepsBackground(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+
+	bg := strings.TrimSuffix(rowStyle.Render(" "), " \x1b[0m")
+	if bg == "" {
+		t.Fatal("row style rendered no background")
+	}
+	line := fillRow(barStyle.Render("▌ ")+mutedStyle.Render("app")+" "+markStyle.Render("fox"), 20)
+	if w := ansi.StringWidth(line); w != 20 {
+		t.Errorf("width = %d, want 20", w)
+	}
+	parts := strings.Split(line, "\x1b[0m")
+	if parts[len(parts)-1] != "" {
+		t.Errorf("line does not end with a reset: %q", line)
+	}
+	for _, p := range parts[:len(parts)-1] {
+		if !strings.HasPrefix(p, bg) {
+			t.Errorf("segment %q lost the row background", p)
+		}
 	}
 }
