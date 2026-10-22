@@ -74,11 +74,15 @@ type transcriptRecord struct {
 }
 
 type contentBlock struct {
-	Type  string `json:"type"`
-	Name  string `json:"name"`
-	Text  string `json:"text"`
-	Input struct {
-		FilePath string `json:"file_path"`
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Text      string `json:"text"`
+	ToolUseID string `json:"tool_use_id"`
+	IsError   bool   `json:"is_error"`
+	Input     struct {
+		FilePath     string `json:"file_path"`
+		PlanFilePath string `json:"planFilePath"`
 	} `json:"input"`
 }
 
@@ -92,6 +96,8 @@ var (
 	textMarker        = []byte(`"type":"text"`)
 	aiTitleMarker     = []byte(`"type":"ai-title"`)
 	customTitleMarker = []byte(`"type":"custom-title"`)
+	exitPlanMarker    = []byte(`"ExitPlanMode"`)
+	toolUseMarker     = []byte(`"type":"tool_use"`)
 )
 
 func NewTranscriptIndex(root string, interval time.Duration) *TranscriptIndex {
@@ -114,6 +120,18 @@ func (t *TranscriptIndex) Lookup(name string) (Origin, bool) {
 	defer t.mu.Unlock()
 	o, ok := t.origins[name]
 	return o, ok
+}
+
+func (t *TranscriptIndex) Status(key string) planStatus {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var latest planReview
+	for _, b := range t.sessions {
+		if r, ok := b.review(key); ok && (latest.status == "" || r.at.After(latest.at)) {
+			latest = r
+		}
+	}
+	return latest.status
 }
 
 func (t *TranscriptIndex) Sessions() []Session {
@@ -203,6 +221,7 @@ func (t *TranscriptIndex) Plan(name string) (Plan, bool) {
 func (t *TranscriptIndex) plan(b *sessionBuilder, i int) Plan {
 	sp := b.plans[i]
 	name := planName(b.id, i)
+	r, _ := b.review(name)
 	return Plan{
 		Name:         name,
 		Source:       t.format.source(),
@@ -212,6 +231,7 @@ func (t *TranscriptIndex) plan(b *sessionBuilder, i int) Plan {
 		Updated:      sp.at,
 		Project:      projectName(b.cwd),
 		Size:         int64(len(sp.text)),
+		Status:       r.status,
 		body:         []byte(sp.text),
 	}
 }
@@ -326,8 +346,11 @@ func (claudeFormat) open(t *TranscriptIndex, p string) *sessionBuilder {
 }
 
 func (claudeFormat) indexLine(t *TranscriptIndex, line []byte, tf *transcriptFile) {
+	b := tf.session
 	origin := bytes.Contains(line, planPathMarker) && bytes.Contains(line, writeMarker)
-	if !origin && (tf.session == nil || !sessionLine(line)) {
+	session := b != nil && sessionLine(line)
+	review := b != nil && claudeReviewLine(b, line)
+	if !origin && !session && !review {
 		return
 	}
 	var rec transcriptRecord
@@ -335,10 +358,49 @@ func (claudeFormat) indexLine(t *TranscriptIndex, line []byte, tf *transcriptFil
 		return
 	}
 	if origin {
-		t.indexOrigin(&rec)
+		if name := t.indexOrigin(&rec); name != "" && b != nil && !rec.IsSidechain {
+			b.planFile = name
+		}
 	}
-	if tf.session != nil {
-		tf.session.add(&rec)
+	if session {
+		b.add(&rec)
+	}
+	if review {
+		addClaudeReview(b, &rec)
+	}
+}
+
+func claudeReviewLine(b *sessionBuilder, line []byte) bool {
+	return bytes.Contains(line, exitPlanMarker) ||
+		bytes.Contains(line, toolResultMarker) && b.awaitingResult(line) ||
+		bytes.Contains(line, toolUseMarker) && b.awaitingWork()
+}
+
+func addClaudeReview(b *sessionBuilder, rec *transcriptRecord) {
+	if rec.IsSidechain {
+		return
+	}
+	var blocks []contentBlock
+	if json.Unmarshal(rec.Message.Content, &blocks) != nil {
+		return
+	}
+	for _, c := range blocks {
+		switch {
+		case rec.Type == "user" && c.Type == "tool_result" && c.ToolUseID != "":
+			b.resolve(c.ToolUseID, !c.IsError, rec.Timestamp)
+		case rec.Type != "assistant" || c.Type != "tool_use":
+			continue
+		case c.Name == "ExitPlanMode":
+			key := b.planFile
+			if c.Input.PlanFilePath != "" {
+				key = path.Base(c.Input.PlanFilePath)
+			}
+			if key != "" {
+				b.present(key, c.ID, rec.Timestamp)
+			}
+		case c.Name != "EnterPlanMode":
+			b.work(rec.Timestamp)
+		}
 	}
 }
 
@@ -349,24 +411,22 @@ func sessionLine(line []byte) bool {
 	return bytes.Contains(line, textMarker) || bytes.Contains(line, aiTitleMarker) || bytes.Contains(line, customTitleMarker)
 }
 
-func (t *TranscriptIndex) indexOrigin(rec *transcriptRecord) {
-	if rec.Timestamp.IsZero() {
-		return
-	}
+func (t *TranscriptIndex) indexOrigin(rec *transcriptRecord) (name string) {
 	var blocks []contentBlock
 	if json.Unmarshal(rec.Message.Content, &blocks) != nil {
-		return
+		return ""
 	}
 	for _, b := range blocks {
 		if b.Type != "tool_use" || b.Name != "Write" || path.Base(path.Dir(b.Input.FilePath)) != "plans" {
 			continue
 		}
-		name := path.Base(b.Input.FilePath)
-		if cur, ok := t.origins[name]; ok && !rec.Timestamp.Before(cur.Created) {
+		name = path.Base(b.Input.FilePath)
+		if cur, ok := t.origins[name]; rec.Timestamp.IsZero() || ok && !rec.Timestamp.Before(cur.Created) {
 			continue
 		}
 		t.origins[name] = Origin{Created: rec.Timestamp, Project: projectName(rec.Cwd)}
 	}
+	return name
 }
 
 func projectName(cwd string) string {

@@ -344,4 +344,9 @@ func TestItemLines(t *testing.T) {
 	if l := ansi.Strip(m.itemLines(s, false, now)[0]); !strings.Contains(l, "x… ") || !strings.HasSuffix(l, " 2h ago") {
 		t.Errorf("long title line = %q", l)
 	}
+
+	p := Plan{Name: "brave-fox.md", Title: "Rugs", Project: "app", Size: 2048, Created: now.Add(-48 * time.Hour), CreatedExact: true, Updated: now, Status: statusWorked}
+	if l := ansi.Strip(m.itemLines(p, false, now)[1]); !strings.HasSuffix(l, " worked on · 2.0 KB · created 2d ago") {
+		t.Errorf("plan meta line = %q", l)
+	}
 }

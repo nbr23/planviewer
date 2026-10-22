@@ -37,6 +37,8 @@ type cachedSession struct {
 	Created, Updated     time.Time
 	Turns                []cachedTurn
 	Plans                []cachedPlan
+	PlanFile             string
+	Reviews              []cachedReview
 	Children             []string
 	Body                 []byte
 }
@@ -50,6 +52,14 @@ type cachedTurn struct {
 type cachedPlan struct {
 	At   time.Time
 	Text string
+}
+
+type cachedReview struct {
+	Key     string
+	Status  planStatus
+	At      time.Time
+	ToolID  string
+	Replied bool
 }
 
 func cacheFileName(projectsDir string) string {
@@ -132,6 +142,8 @@ func (b *sessionBuilder) cached() *cachedSession {
 		Updated:     b.updated,
 		Turns:       make([]cachedTurn, len(b.turns)),
 		Plans:       make([]cachedPlan, len(b.plans)),
+		PlanFile:    b.planFile,
+		Reviews:     make([]cachedReview, len(b.reviews)),
 		Children:    b.children,
 		Body:        b.body,
 	}
@@ -140,6 +152,9 @@ func (b *sessionBuilder) cached() *cachedSession {
 	}
 	for i, sp := range b.plans {
 		c.Plans[i] = cachedPlan{At: sp.at, Text: sp.text}
+	}
+	for i, r := range b.reviews {
+		c.Reviews[i] = cachedReview{Key: r.key, Status: r.status, At: r.at, ToolID: r.toolID, Replied: r.replied}
 	}
 	return c
 }
@@ -156,6 +171,8 @@ func (c *cachedSession) builder() *sessionBuilder {
 		updated:     c.Updated,
 		turns:       make([]turn, len(c.Turns)),
 		plans:       make([]sessionPlan, len(c.Plans)),
+		planFile:    c.PlanFile,
+		reviews:     make([]planReview, len(c.Reviews)),
 		children:    c.Children,
 		body:        c.Body,
 	}
@@ -164,6 +181,9 @@ func (c *cachedSession) builder() *sessionBuilder {
 	}
 	for i, sp := range c.Plans {
 		b.plans[i] = sessionPlan{at: sp.At, text: sp.Text}
+	}
+	for i, r := range c.Reviews {
+		b.reviews[i] = planReview{key: r.Key, status: r.Status, at: r.At, toolID: r.ToolID, replied: r.Replied}
 	}
 	return b
 }

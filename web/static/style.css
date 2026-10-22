@@ -10,6 +10,8 @@
   --accent: #0969da;
   --mark: #fff8c5;
   --fresh: #1a7f37;
+  --pending: #9a6700;
+  --rejected: #cf222e;
   --p0: #0969da;
   --p1: #1a7f37;
   --p2: #bc4c00;
@@ -33,6 +35,8 @@
     --accent: #4493f8;
     --mark: #5c4a00;
     --fresh: #3fb950;
+    --pending: #d29922;
+    --rejected: #ff7b72;
     --p0: #58a6ff;
     --p1: #3fb950;
     --p2: #f0883e;
@@ -136,6 +140,12 @@ tbody tr.selected { background: var(--selected); }
 .source-claude { background: #d97757; }
 .source-codex { background: #10a37f; }
 .source-agy { background: #8ab4f8; }
+.status { font: 600 11px/16px var(--mono); color: var(--muted); }
+.slug .status { margin-left: 8px; }
+.status[data-status="pending"] { color: var(--pending); }
+.status[data-status="rejected"] { color: var(--rejected); }
+.status[data-status="approved"] { color: var(--accent); }
+.status[data-status="worked on"] { color: var(--fresh); }
 .p0 { color: var(--p0); }
 .p1 { color: var(--p1); }
 .p2 { color: var(--p2); }

@@ -41,6 +41,14 @@ var (
 		sourceAgy:    lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#8AB4F8")),
 	}
 
+	statusStyles = map[planStatus]lipgloss.Style{
+		statusDraft:    mutedStyle,
+		statusPending:  lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#9A6700", Dark: "#D29922"}),
+		statusRejected: errorStyle,
+		statusApproved: barStyle,
+		statusWorked:   freshStyle,
+	}
+
 	projectPalette = [...]lipgloss.AdaptiveColor{
 		{Light: "#0969DA", Dark: "#58A6FF"},
 		{Light: "#1A7F37", Dark: "#3FB950"},
@@ -324,6 +332,9 @@ func planDocument(p Plan, now time.Time) document {
 	if p.Project != "" {
 		meta = append(meta, p.Project)
 	}
+	if p.Status != "" {
+		meta = append(meta, string(p.Status))
+	}
 	meta = append(meta, "created "+p.createdLabel(now), "updated "+relativeTime(p.Updated, now))
 	return document{name: p.Name, title: p.Title, meta: meta, body: p.body, updated: p.Updated}
 }
@@ -586,6 +597,9 @@ func (p Plan) itemMeta(q query, sortKey string, now time.Time) (left, right []st
 	right = []string{
 		metaStyle(sortKey == "size").Render(formatSize(p.Size)),
 		metaStyle(sortKey == "created").Render("created " + p.createdLabel(now)),
+	}
+	if p.Status != "" {
+		right = append([]string{statusStyles[p.Status].Render(string(p.Status))}, right...)
 	}
 	return left, right
 }

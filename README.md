@@ -10,6 +10,7 @@ Browse the plans Claude Code, Codex and Antigravity write and search your past s
 - Codex: if `~/.codex/sessions/` is present, Codex sessions and the plans proposed in plan mode are listed alongside Claude's. A Codex plan is named after its session id (`<id>`, then `<id>-2`, … for later plans in the same session). Subagent and review threads are skipped.
 - Antigravity: if `~/.gemini/antigravity-cli/brain/` is present, Antigravity conversations are listed as sessions and every artifact it writes (`implementation_plan.md`, `task.md`, `walkthrough.md`, reports…) as a plan, named `<conversation id>/<file>`. Subagent and internal conversations are skipped. Titles and workspaces come from Antigravity's annotations, conversation cache and prompt history.
 - When more than one tool is present, each item is labelled with its source; prefix the search with `src:claude`, `src:codex` or `src:agy` to show only one.
+- Each plan shows what its transcript says happened to it: `draft` (a Claude plan written but never presented), `pending` (presented, not approved), `rejected`, `approved`, or `worked on` (approved, then the agent ran tools). `worked on` means work started after approval, not that it was finished. An Antigravity artifact gets a status only when the agent asked for a review, and a free-text reply counts once the agent acts on it. Prefix the search with `status:` to filter, e.g. `status:worked` or `status:pending`.
 
 ## Install
 

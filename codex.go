@@ -19,6 +19,12 @@ var (
 		[]byte(`"type":"AgentMessage"`),
 		[]byte(`"type":"Plan"`),
 	}
+	codexTurnContextMarker = []byte(`"type":"turn_context"`)
+	codexWorkMarkers       = [][]byte{
+		[]byte(`"type":"CommandExecution"`),
+		[]byte(`"type":"FileChange"`),
+		[]byte(`"type":"McpToolCall"`),
+	}
 )
 
 type codexFormat struct{}
@@ -34,8 +40,11 @@ type codexRecord struct {
 		Git    struct {
 			Branch string `json:"branch"`
 		} `json:"git"`
-		Message string `json:"message"`
-		Item    struct {
+		Message           string `json:"message"`
+		CollaborationMode struct {
+			Mode string `json:"mode"`
+		} `json:"collaboration_mode"`
+		Item struct {
 			Type    string `json:"type"`
 			Text    string `json:"text"`
 			Content []struct {
@@ -74,13 +83,27 @@ func (codexFormat) indexLine(t *TranscriptIndex, line []byte, tf *transcriptFile
 		}
 		return
 	}
-	if !containsAny(line, codexMarkers) {
+	b := tf.session
+	if !containsAny(line, codexMarkers) && !codexReviewLine(b, line) {
 		return
 	}
 	var rec codexRecord
-	if json.Unmarshal(line, &rec) == nil && rec.Type == "event_msg" {
-		addCodexEvent(tf.session, &rec)
+	if json.Unmarshal(line, &rec) != nil {
+		return
 	}
+	switch rec.Type {
+	case "event_msg":
+		addCodexEvent(b, &rec)
+	case "turn_context":
+		if rec.Payload.CollaborationMode.Mode == "default" {
+			b.settlePending(statusApproved, rec.Timestamp)
+		}
+	}
+}
+
+func codexReviewLine(b *sessionBuilder, line []byte) bool {
+	return bytes.Contains(line, codexTurnContextMarker) && b.hasPending() ||
+		containsAny(line, codexWorkMarkers) && b.awaitingWork()
 }
 
 func startCodexSession(t *TranscriptIndex, line []byte, tf *transcriptFile) {
@@ -127,10 +150,16 @@ func addCodexEvent(b *sessionBuilder, rec *codexRecord) {
 			text = strings.TrimSpace(p.Item.Text)
 			if text != "" {
 				b.plans = append(b.plans, sessionPlan{at: rec.Timestamp, text: text})
+				b.present(planName(b.id, len(b.plans)-1), "", rec.Timestamp)
 			}
+		case "CommandExecution", "FileChange", "McpToolCall":
+			b.work(rec.Timestamp)
 		}
 	}
 	if text = strings.TrimSpace(text); text != "" {
+		if user {
+			b.settlePending(statusRejected, rec.Timestamp)
+		}
 		b.addTurn(user, rec.Timestamp, text)
 	}
 }

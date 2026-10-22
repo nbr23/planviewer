@@ -48,7 +48,7 @@ function escapeRe(s) {
 }
 
 function highlight(text) {
-  const terms = state.q.trim().split(/\s+/).filter((t) => t && !t.startsWith("src:")).map(escapeRe);
+  const terms = state.q.trim().split(/\s+/).filter((t) => t && !/^(src|status):/.test(t)).map(escapeRe);
   if (!terms.length) return [text];
   const re = new RegExp("(" + terms.join("|") + ")", "gi");
   return text.split(re).map((part, i) => (i % 2 ? el("mark", { textContent: part }) : part));
@@ -114,6 +114,11 @@ function compare(a, b) {
 function row(item, index) {
   const sub = el("div", { className: "slug" }, ...highlight(kind.sub(item)));
   if (data.sources.length > 1) sub.prepend(el("span", { className: "source source-" + item.source, textContent: item.source }));
+  if (item.status) {
+    const status = el("span", { className: "status", textContent: item.status });
+    status.dataset.status = item.status;
+    sub.append(status);
+  }
   const title = el("td", { className: "col-title" },
     el("a", { href: kind.link(item) }, ...highlight(item.title)),
     sub);

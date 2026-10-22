@@ -315,6 +315,102 @@ func sessionTexts(t *testing.T, idx *TranscriptIndex, id string) []string {
 	return out
 }
 
+func claudeBlockLine(ts, typ string, block map[string]any) string {
+	return jsonLine(map[string]any{
+		"type": typ, "timestamp": ts, "cwd": "/home/u/dev/app",
+		"message": map[string]any{"role": typ, "content": []any{block}},
+	})
+}
+
+func exitPlanLine(ts, id, planFile string) string {
+	input := map[string]any{}
+	if planFile != "" {
+		input["planFilePath"] = planFile
+	}
+	return claudeBlockLine(ts, "assistant", map[string]any{"type": "tool_use", "id": id, "name": "ExitPlanMode", "input": input})
+}
+
+func toolResultLine(ts, id string, isError bool) string {
+	return claudeBlockLine(ts, "user", map[string]any{"type": "tool_result", "tool_use_id": id, "is_error": isError, "content": "result"})
+}
+
+func toolUseLine(ts, name string) string {
+	return claudeBlockLine(ts, "assistant", map[string]any{"type": "tool_use", "id": "toolu_" + name, "name": name, "input": map[string]any{}})
+}
+
+func TestClaudePlanStatus(t *testing.T) {
+	plansDir, root := t.TempDir(), t.TempDir()
+	proj := filepath.Join(root, "-home-u-dev-app")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"brave-fox.md", "calm-owl.md", "lone-elk.md"} {
+		if err := os.WriteFile(filepath.Join(plansDir, name), []byte("# Plan\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idx := NewTranscriptIndex(root, 0)
+	store := NewStore(plansDir, idx)
+	status := func(name string) planStatus {
+		t.Helper()
+		p, err := store.Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Status
+	}
+
+	session := filepath.Join(proj, "sess.jsonl")
+	blob := jsonLine(map[string]any{"type": "api-request-blob", "message": map[string]any{"role": "assistant", "content": []any{
+		map[string]any{"type": "tool_use", "id": "toolu_blob", "name": "ExitPlanMode", "input": map[string]any{"planFilePath": "/home/u/.claude/plans/brave-fox.md"}},
+	}}})
+	steps := []struct {
+		line string
+		want planStatus
+	}{
+		{writeRecord("2026-09-01T10:00:00Z", "/home/u/dev/app", "/home/u/.claude/plans/brave-fox.md"), statusDraft},
+		{blob, statusDraft},
+		{exitPlanLine("2026-09-01T10:00:01Z", "toolu_1", "/home/u/.claude/plans/brave-fox.md"), statusPending},
+		{toolUseLine("2026-09-01T10:00:02Z", "Read"), statusPending},
+		{toolResultLine("2026-09-01T10:00:03Z", "toolu_other", false), statusPending},
+		{toolResultLine("2026-09-01T10:00:04Z", "toolu_1", false), statusApproved},
+		{toolUseLine("2026-09-01T10:00:05Z", "Bash"), statusWorked},
+		{exitPlanLine("2026-09-01T10:01:00Z", "toolu_2", "/home/u/.claude/plans/brave-fox.md"), statusPending},
+	}
+	for i, s := range steps {
+		appendFile(t, session, s.line)
+		if got := status("brave-fox.md"); got != s.want {
+			t.Fatalf("step %d: status = %q, want %q", i, got, s.want)
+		}
+	}
+
+	appendFile(t, filepath.Join(proj, "other.jsonl"), writeRecord("2026-09-02T10:00:00Z", "/home/u/dev/app", "/home/u/.claude/plans/calm-owl.md")+
+		exitPlanLine("2026-09-02T10:00:01Z", "toolu_3", "")+
+		toolResultLine("2026-09-02T10:00:02Z", "toolu_3", true)+
+		toolUseLine("2026-09-02T10:00:03Z", "Edit"))
+	if got := status("calm-owl.md"); got != statusRejected {
+		t.Fatalf("calm-owl.md status = %q, want rejected", got)
+	}
+	if got := status("lone-elk.md"); got != "" {
+		t.Fatalf("plan without transcript has status %q", got)
+	}
+}
+
+func TestClaudePlanStatusResumesFromCache(t *testing.T) {
+	root, session, cache := cacheFixture(t)
+	if got := cachedIndex(t, root, cache).Status("one.md"); got != "" {
+		t.Fatalf("status before ExitPlanMode = %q", got)
+	}
+	appendFile(t, session, exitPlanLine("2026-09-01T10:00:02Z", "toolu_1", ""))
+	if got := cachedIndex(t, root, cache).Status("one.md"); got != statusPending {
+		t.Fatalf("status after ExitPlanMode = %q, want pending", got)
+	}
+	appendFile(t, session, toolResultLine("2026-09-01T10:05:00Z", "toolu_1", false)+toolUseLine("2026-09-01T10:05:01Z", "Edit"))
+	if got := cachedIndex(t, root, cache).Status("one.md"); got != statusWorked {
+		t.Fatalf("status after approval and edit = %q, want worked on", got)
+	}
+}
+
 func TestTranscriptCacheWarmStart(t *testing.T) {
 	root, session, cache := cacheFixture(t)
 	cachedIndex(t, root, cache)

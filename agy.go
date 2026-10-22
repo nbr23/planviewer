@@ -27,6 +27,7 @@ var (
 	agyContentMarker  = []byte(`"content":"`)
 	agySpawnMarker    = []byte("Created the following subagents")
 	agyArtifactMarker = []byte(`"ArtifactMetadata"`)
+	agyToolMarker     = []byte(`"tool_calls":[{`)
 )
 
 type agyFormat struct{}
@@ -127,16 +128,22 @@ func (agyFormat) indexLine(t *TranscriptIndex, line []byte, tf *transcriptFile) 
 	turn := containsAny(line, agyTurnMarkers) && bytes.Contains(line, agyContentMarker)
 	spawn := bytes.Contains(line, agySpawnMarker)
 	artifact := bytes.Contains(line, agyArtifactMarker)
-	if !turn && !spawn && !artifact {
+	b := tf.session
+	tools := bytes.Contains(line, agyToolMarker) && b.awaitingWork()
+	if !turn && !spawn && !artifact && !tools {
 		return
 	}
 	var st agyStep
 	if json.Unmarshal(line, &st) != nil {
 		return
 	}
-	b := tf.session
 	switch st.Type {
 	case "USER_INPUT":
+		if strings.Contains(st.Content, "[Approved]") {
+			b.settlePending(statusApproved, st.CreatedAt)
+		} else {
+			b.replyPending()
+		}
 		b.addTurn(true, st.CreatedAt, agyPrompt(st.Content))
 	case "PLANNER_RESPONSE":
 		b.addTurn(false, st.CreatedAt, strings.TrimSpace(st.Content))
@@ -147,8 +154,11 @@ func (agyFormat) indexLine(t *TranscriptIndex, line []byte, tf *transcriptFile) 
 			}
 		}
 	}
-	if artifact {
-		indexArtifacts(t, &st)
+	if artifact && indexArtifacts(t, b, &st) {
+		return
+	}
+	if len(st.ToolCalls) > 0 {
+		b.work(st.CreatedAt)
 	}
 }
 
@@ -159,9 +169,9 @@ func agyPrompt(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func indexArtifacts(t *TranscriptIndex, st *agyStep) {
+func indexArtifacts(t *TranscriptIndex, b *sessionBuilder, st *agyStep) (presented bool) {
 	if st.CreatedAt.IsZero() {
-		return
+		return false
 	}
 	for _, tc := range st.ToolCalls {
 		target, meta := tc.Args.TargetFile, string(tc.Args.ArtifactMetadata)
@@ -176,11 +186,27 @@ func indexArtifacts(t *TranscriptIndex, st *agyStep) {
 			continue
 		}
 		key := path.Base(dir) + "/" + path.Base(target)
+		if agyRequestsFeedback(tc.Args.ArtifactMetadata) {
+			b.present(key, "", st.CreatedAt)
+			presented = true
+		}
 		if cur, ok := t.origins[key]; ok && !st.CreatedAt.Before(cur.Created) {
 			continue
 		}
 		t.origins[key] = Origin{Created: st.CreatedAt}
 	}
+	return presented
+}
+
+func agyRequestsFeedback(raw json.RawMessage) bool {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		raw = []byte(s)
+	}
+	var meta struct {
+		RequestFeedback bool
+	}
+	return json.Unmarshal(raw, &meta) == nil && meta.RequestFeedback
 }
 
 func stampOf(info fs.FileInfo) fileStamp {
@@ -432,6 +458,7 @@ func (a *artifactStore) plan(name string, af *artifactFile) Plan {
 		Updated: af.updated,
 		Project: projectName(a.index.cwd(id)),
 		Size:    int64(len(af.body)),
+		Status:  a.index.Status(name),
 		body:    af.body,
 	}
 	if o, ok := a.index.Lookup(name); ok {

@@ -47,6 +47,24 @@ type sessionPlan struct {
 	text string
 }
 
+type planStatus string
+
+const (
+	statusDraft    planStatus = "draft"
+	statusPending  planStatus = "pending"
+	statusRejected planStatus = "rejected"
+	statusApproved planStatus = "approved"
+	statusWorked   planStatus = "worked on"
+)
+
+type planReview struct {
+	key     string
+	status  planStatus
+	at      time.Time
+	toolID  string
+	replied bool
+}
+
 type sessionBuilder struct {
 	id                   string
 	cwd, branch          string
@@ -55,8 +73,87 @@ type sessionBuilder struct {
 	created, updated     time.Time
 	turns                []turn
 	plans                []sessionPlan
+	planFile             string
+	reviews              []planReview
 	children             []string
 	body                 []byte
+}
+
+func (r planReview) awaitingWork() bool {
+	return r.status == statusApproved || r.status == statusPending && r.replied
+}
+
+func (r *planReview) set(status planStatus, at time.Time) {
+	r.status, r.at, r.toolID = status, at, ""
+}
+
+func (b *sessionBuilder) present(key, toolID string, at time.Time) {
+	r := planReview{key: key, status: statusPending, at: at, toolID: toolID}
+	for i := range b.reviews {
+		if b.reviews[i].key == key {
+			b.reviews[i] = r
+			return
+		}
+	}
+	b.reviews = append(b.reviews, r)
+}
+
+func (b *sessionBuilder) resolve(toolID string, approved bool, at time.Time) {
+	status := statusRejected
+	if approved {
+		status = statusApproved
+	}
+	for i := range b.reviews {
+		if r := &b.reviews[i]; r.status == statusPending && r.toolID == toolID {
+			r.set(status, at)
+		}
+	}
+}
+
+func (b *sessionBuilder) settlePending(status planStatus, at time.Time) {
+	for i := range b.reviews {
+		if r := &b.reviews[i]; r.status == statusPending {
+			r.set(status, at)
+		}
+	}
+}
+
+func (b *sessionBuilder) replyPending() {
+	for i := range b.reviews {
+		if r := &b.reviews[i]; r.status == statusPending {
+			r.replied = true
+		}
+	}
+}
+
+func (b *sessionBuilder) work(at time.Time) {
+	for i := range b.reviews {
+		if r := &b.reviews[i]; r.awaitingWork() {
+			r.set(statusWorked, at)
+		}
+	}
+}
+
+func (b *sessionBuilder) hasPending() bool {
+	return slices.ContainsFunc(b.reviews, func(r planReview) bool { return r.status == statusPending })
+}
+
+func (b *sessionBuilder) awaitingWork() bool {
+	return slices.ContainsFunc(b.reviews, planReview.awaitingWork)
+}
+
+func (b *sessionBuilder) awaitingResult(line []byte) bool {
+	return slices.ContainsFunc(b.reviews, func(r planReview) bool {
+		return r.status == statusPending && r.toolID != "" && bytes.Contains(line, []byte(r.toolID))
+	})
+}
+
+func (b *sessionBuilder) review(key string) (planReview, bool) {
+	i := slices.IndexFunc(b.reviews, func(r planReview) bool { return r.key == key })
+	if i < 0 {
+		return planReview{}, false
+	}
+	return b.reviews[i], true
 }
 
 func (b *sessionBuilder) add(rec *transcriptRecord) {

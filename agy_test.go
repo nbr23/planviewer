@@ -53,6 +53,17 @@ func agyWrite(i int, ts, target string) agyTestStep {
 	}}}
 }
 
+func agyReviewWrite(i int, ts, target string) agyTestStep {
+	return agyTestStep{i, "MODEL", "PLANNER_RESPONSE", ts, "", []any{map[string]any{
+		"name": "write_to_file",
+		"args": map[string]any{"TargetFile": target, "ArtifactMetadata": map[string]any{"RequestFeedback": true, "Summary": "plan"}, "CodeContent": "# Plan"},
+	}}}
+}
+
+func agyTool(i int, ts, name string) agyTestStep {
+	return agyTestStep{i, "MODEL", "PLANNER_RESPONSE", ts, "", []any{map[string]any{"name": name, "args": map[string]any{}}}}
+}
+
 func writeTestFile(t *testing.T, p, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -221,6 +232,71 @@ func TestAgyArtifacts(t *testing.T) {
 	}
 	if plans, err := c.Plans(); err != nil || len(plans) != 2 || plans[0].Name != agyMain+"/implementation_plan.md" {
 		t.Fatalf("Catalog.Plans = %v, %v", planNames(plans), err)
+	}
+}
+
+func TestAgyPlanStatus(t *testing.T) {
+	dir := t.TempDir()
+	brain := "/home/u/.gemini/antigravity-cli/brain/" + agyMain + "/"
+	log := agyLogPath(dir, agyMain, "transcript.jsonl")
+	writeTestFile(t, log, agyLog(
+		agyUser(0, "2026-09-01T10:00:00Z", "plan the rug cleaning"),
+		agyReviewWrite(1, "2026-09-01T10:00:01Z", brain+"implementation_plan.md"),
+		agyWrite(2, "2026-09-01T10:00:02Z", brain+"task.md"),
+	))
+	for _, f := range []string{"implementation_plan.md", "task.md"} {
+		writeTestFile(t, filepath.Join(dir, "brain", agyMain, f), "# "+f+"\n")
+		writeTestFile(t, filepath.Join(dir, "brain", agyMain, f+".metadata.json"), "{}")
+	}
+	store := newArtifactStore(NewAgyIndex(dir, 0))
+	status := func(file string) planStatus {
+		t.Helper()
+		p, err := store.Get(agyMain + "/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Status
+	}
+
+	if got := status("implementation_plan.md"); got != statusPending {
+		t.Fatalf("initial status = %q, want pending", got)
+	}
+	steps := []struct {
+		step agyTestStep
+		want planStatus
+	}{
+		{agyReply(3, "2026-09-01T10:00:03Z", "Review the plan."), statusPending},
+		{agyUser(4, "2026-09-01T10:01:00Z", "why vacuum first?"), statusPending},
+		{agyReviewWrite(5, "2026-09-01T10:01:30Z", brain+"implementation_plan.md"), statusPending},
+		{agyTool(6, "2026-09-01T10:01:31Z", "view_file"), statusPending},
+		{agyUser(7, "2026-09-01T10:02:00Z", "[Approved] implementation_plan.md"), statusApproved},
+		{agyTool(8, "2026-09-01T10:02:01Z", "view_file"), statusWorked},
+		{agyReviewWrite(9, "2026-09-01T11:00:00Z", brain+"implementation_plan.md"), statusPending},
+		{agyUser(10, "2026-09-01T11:01:00Z", "let's go"), statusPending},
+		{agyTool(11, "2026-09-01T11:01:01Z", "replace_file_content"), statusWorked},
+	}
+	for i, s := range steps {
+		appendFile(t, log, agyLog(s.step))
+		if got := status("implementation_plan.md"); got != s.want {
+			t.Fatalf("step %d: status = %q, want %q", i, got, s.want)
+		}
+	}
+	if got := status("task.md"); got != "" {
+		t.Fatalf("task.md status = %q, want none", got)
+	}
+}
+
+func TestAgyRequestsFeedback(t *testing.T) {
+	for raw, want := range map[string]bool{
+		`{"RequestFeedback":true,"Summary":"plan"}`: true,
+		`"{\"RequestFeedback\":true}"`:              true,
+		`{"Summary":"plan"}`:                        false,
+		`"{\"Summary\":\"plan\"}"`:                  false,
+		`null`:                                      false,
+	} {
+		if got := agyRequestsFeedback(json.RawMessage(raw)); got != want {
+			t.Errorf("agyRequestsFeedback(%s) = %v, want %v", raw, got, want)
+		}
 	}
 }
 

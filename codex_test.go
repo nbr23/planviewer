@@ -149,6 +149,45 @@ func TestCodexIndex(t *testing.T) {
 	}
 }
 
+func TestCodexPlanStatus(t *testing.T) {
+	_, sessionsDir := codexFixture(t)
+	current := rollout(sessionsDir, "new-1")
+	appendFile(t, current, strings.Join([]string{
+		codexMeta("new-1", "cli"),
+		codexMessage("2026-09-01T10:00:01Z", "UserMessage", "plan the rug cleaning"),
+		codexPlan("2026-09-01T10:00:02Z", "# Rug plan"),
+		codexMessage("2026-09-01T10:00:03Z", "UserMessage", "no new button please"),
+		codexPlan("2026-09-01T10:00:04Z", "# Rug plan, revised"),
+	}, ""))
+	idx := NewCodexIndex(sessionsDir, 0)
+	check := func(want ...planStatus) {
+		t.Helper()
+		idx.Refresh()
+		plans := idx.Plans()
+		slices.SortFunc(plans, func(a, b Plan) int { return strings.Compare(a.Name, b.Name) })
+		var got []planStatus
+		for _, p := range plans {
+			got = append(got, p.Status)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("statuses = %q, want %q", got, want)
+		}
+	}
+	turnContext := func(ts, mode string) string {
+		return codexLine(ts, "turn_context", map[string]any{"collaboration_mode": map[string]any{"mode": mode}})
+	}
+
+	check(statusRejected, statusPending)
+	appendFile(t, current, turnContext("2026-09-01T10:00:05Z", "plan"))
+	check(statusRejected, statusPending)
+	appendFile(t, current, turnContext("2026-09-01T10:01:00Z", "default")+codexMessage("2026-09-01T10:01:00Z", "UserMessage", "Implement the plan."))
+	check(statusRejected, statusApproved)
+	appendFile(t, current, codexItem("2026-09-01T10:01:30Z", map[string]any{"type": "CommandExecution"}))
+	check(statusRejected, statusWorked)
+	appendFile(t, current, codexPlan("2026-09-01T10:02:00Z", "# Next plan"))
+	check(statusRejected, statusWorked, statusPending)
+}
+
 func TestCodexCacheWarmStart(t *testing.T) {
 	_, sessionsDir := codexFixture(t)
 	appendFile(t, rollout(sessionsDir, "new-1"), codexMeta("new-1", "cli")+

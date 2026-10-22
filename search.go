@@ -16,6 +16,7 @@ var whitespaceRe = regexp.MustCompile(`\s+`)
 type query struct {
 	terms  []*regexp.Regexp
 	source string
+	status string
 }
 
 func parseQuery(q string) query {
@@ -25,13 +26,17 @@ func parseQuery(q string) query {
 			qu.source = strings.ToLower(src)
 			continue
 		}
+		if st, ok := strings.CutPrefix(f, "status:"); ok {
+			qu.status = strings.ToLower(st)
+			continue
+		}
 		qu.terms = append(qu.terms, regexp.MustCompile(`(?i)`+regexp.QuoteMeta(f)))
 	}
 	return qu
 }
 
 func (q query) empty() bool {
-	return len(q.terms) == 0 && q.source == ""
+	return len(q.terms) == 0 && q.source == "" && q.status == ""
 }
 
 func (q query) allows(source string) bool {
@@ -73,7 +78,7 @@ func filterPlans(plans []Plan, q query) []Plan {
 	}
 	out := plans[:0]
 	for _, p := range plans {
-		if !q.allows(p.Source) {
+		if !q.allows(p.Source) || !strings.HasPrefix(string(p.Status), q.status) {
 			continue
 		}
 		if s, ok := q.match([]string{p.Title, p.Name, p.Project}, p.body); ok {
