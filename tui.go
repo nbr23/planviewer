@@ -268,7 +268,7 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sorts[m.mode].desc = !m.sorts[m.mode].desc
 			m.resort()
 			return m, nil
-		case "ctrl+t":
+		case "ctrl+t", "ctrl+left", "ctrl+right":
 			m.toggleMode()
 			return m, nil
 		case "ctrl+r":
@@ -518,7 +518,7 @@ func (m model) footerView() string {
 	}
 	toggle := ""
 	if m.catalog.HasSessions() {
-		toggle = " · ctrl+t " + listKinds[(m.mode+1)%listMode(len(listKinds))].noun
+		toggle = " · ctrl+←/→ " + listKinds[(m.mode+1)%listMode(len(listKinds))].noun
 	}
 	return mutedStyle.Render("↑/↓ move · enter open · tab sort · shift+tab reverse" + toggle + " · ctrl+r reload · esc clear/quit")
 }

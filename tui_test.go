@@ -225,6 +225,12 @@ func TestModelSessionsSearchOpenAndResume(t *testing.T) {
 	if m.mode != sessionsMode || len(m.shown) != 2 || !strings.Contains(m.View(), "2 sessions") {
 		t.Fatalf("after ctrl+t mode=%v shown=%v\n%s", m.mode, shownNames(m), m.View())
 	}
+	if m = update(t, m, tea.KeyMsg{Type: tea.KeyCtrlLeft}); m.mode != plansMode {
+		t.Fatalf("after ctrl+left mode=%v", m.mode)
+	}
+	if m = update(t, m, tea.KeyMsg{Type: tea.KeyCtrlRight}); m.mode != sessionsMode || !strings.Contains(m.View(), "ctrl+←/→ plans") {
+		t.Fatalf("after ctrl+right mode=%v\n%s", m.mode, m.View())
+	}
 
 	m = update(t, m, typeText("brushroll"))
 	if got := shownNames(m); !slices.Equal(got, []string{"sess-1"}) || m.shown[0].itemSnippet() == "" {
