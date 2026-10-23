@@ -2,10 +2,10 @@
 
 Browse the plans Claude Code, Codex and Antigravity write and search your past sessions to find the one to resume, from the terminal or a browser.
 
-- Full-text search across titles, filenames, projects and plan bodies, with highlighted snippets
+- Full-text search across titles, filenames, projects, session ids and plan bodies, with highlighted snippets
 - Sort by updated, created, title, project or size
 - Rendered markdown, plus raw view
-- If `~/.claude/projects/` is present, session transcripts are used to recover each plan's exact creation time and originating project; otherwise creation time falls back to file mtime (shown as `~`)
+- If `~/.claude/projects/` is present, session transcripts are used to recover each plan's exact creation time, originating project and the session that wrote it; otherwise creation time falls back to file mtime (shown as `~`)
 - Sessions: search transcripts by title (`/rename` or the generated one), project, git branch, your prompts and Claude's replies, then read the conversation and get the command to resume it. Tool calls, tool output and thinking are not indexed.
 - Codex: if `~/.codex/sessions/` is present, Codex sessions and the plans proposed in plan mode are listed alongside Claude's. A Codex plan is named after its session id (`<id>`, then `<id>-2`, … for later plans in the same session). Subagent and review threads are skipped.
 - Antigravity: if `~/.gemini/antigravity-cli/brain/` is present, Antigravity conversations are listed as sessions and every artifact it writes (`implementation_plan.md`, `task.md`, `walkthrough.md`, reports…) as a plan, named `<conversation id>/<file>`. Subagent and internal conversations are skipped. Titles and workspaces come from Antigravity's annotations, conversation cache and prompt history.
@@ -43,7 +43,7 @@ planviewer serve                 # http://localhost:8080
 planviewer serve -addr :9000     # or ADDR=:9000
 ```
 
-`/` focuses search, arrows + `enter` open a plan, column headers sort. On a plan page, `r` toggles raw view and the session that wrote the plan links to its session page. `/sessions` lists sessions the same way; a session page shows the conversation and a copyable resume command. On either page, `esc` or `backspace` goes back.
+`/` focuses search, arrows + `enter` open a plan, column headers sort. On a plan page, `r` toggles raw view, and the id of the session that wrote the plan links to that session's page. `/sessions` lists sessions the same way; a session page shows the conversation and a copyable resume command. On either page, `esc` or `backspace` goes back.
 
 The sessions pages serve your prompts and the agents' replies, so keep the listener on localhost unless you mean to share them.
 
