@@ -30,7 +30,11 @@ The parsed transcript index is cached in your user cache directory (`~/.cache/pl
 planviewer          # same as: planviewer tui
 ```
 
+![Terminal plan list showing sources, projects and approval statuses](screenshots/tui-plans.png)
+
 List view: type to search, `↑/↓` move, `enter` open, `tab` cycle sort key, `shift+tab` reverse, `ctrl+←/→` (or `ctrl+t`) switch between plans and sessions, `ctrl+r` reload, `esc` clear search / quit.
+
+![Terminal session list showing sources, projects, branches and message counts](screenshots/tui-sessions.png)
 
 Plan and session views use `most`-style keys: `j/k`, `space/u`, `g/G` (or `t/b`), `/` and `?` to search, `n/N` next/previous match, `%` / `J` go to percent / line, `h` help, `q` back. In a session, the header shows the command to resume it (`claude --resume <id>`, `codex resume <id>` for Codex, `agy --conversation=<id>` for Antigravity, prefixed with `cd ~/<project> &&`), and `r` quits and prints it for you to run. A plan shows the same command for the session that wrote it, or just that session's ID if its transcript is gone.
 
