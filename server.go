@@ -54,6 +54,7 @@ type planPage struct {
 	Plan
 	HTML        template.HTML
 	Raw         string
+	Command     string
 	ShowSource  bool
 	SessionLink bool
 }
@@ -165,8 +166,18 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot render plan", http.StatusInternalServerError)
 		return
 	}
-	_, linked := s.catalog.Session(p.Session)
-	s.execute(w, "plan.html", planPage{Plan: p, HTML: html, Raw: string(p.body), ShowSource: s.showSource(), SessionLink: linked})
+	sess, linked := s.catalog.Session(p.Session)
+	command := ""
+	if p.Source == sourceClaude {
+		command = "/plan " + p.Name
+	} else if p.Session != "" {
+		if !linked {
+			sess = Session{ID: p.Session, Source: p.Source}
+		}
+		home, _ := os.UserHomeDir()
+		command = sess.resumeCommand(home)
+	}
+	s.execute(w, "plan.html", planPage{Plan: p, HTML: html, Raw: string(p.body), Command: command, ShowSource: s.showSource(), SessionLink: linked})
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {

@@ -25,17 +25,21 @@ for (const btn of document.querySelectorAll("[data-view]")) {
   });
 }
 
-const copyBtn = document.getElementById("copy");
-const copyLabel = copyBtn.textContent;
-copyBtn.addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(document.getElementById(copyBtn.dataset.copy).textContent);
-    copyBtn.textContent = "Copied";
-  } catch {
-    copyBtn.textContent = "Copy failed";
-  }
-  setTimeout(() => (copyBtn.textContent = copyLabel), 1500);
-});
+for (const copyBtn of document.querySelectorAll("[data-copy], [data-copy-text]")) {
+  const copyLabel = copyBtn.textContent;
+  let reset;
+  copyBtn.addEventListener("click", async () => {
+    clearTimeout(reset);
+    try {
+      const text = copyBtn.dataset.copyText ?? document.getElementById(copyBtn.dataset.copy).textContent;
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = "Copied";
+    } catch {
+      copyBtn.textContent = "Copy failed";
+    }
+    reset = setTimeout(() => (copyBtn.textContent = copyLabel), 1500);
+  });
+}
 
 document.addEventListener("keydown", (e) => {
   if (e.target.closest("input, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;

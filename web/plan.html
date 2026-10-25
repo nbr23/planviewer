@@ -20,7 +20,7 @@
 <main class="plan">
   <div class="meta muted">
     {{- if .ShowSource}}<span class="source source-{{.Source}}">{{.Source}}</span>{{end}}
-    <span class="slug">{{.Name}}</span>
+    <span class="plan-name"><span class="slug">{{.Name}}</span>{{if .Command}}<button type="button" class="copy-command" data-copy-text="{{.Command}}" title="{{.Command}}" aria-live="polite">Copy command</button>{{end}}</span>
     {{- if .Project}}<span>{{.Project}}</span>{{end}}
     {{- if .Session}}<span>Session <span class="slug">{{if .SessionLink}}<a href="/s/{{.Session}}">{{.Session}}</a>{{else}}{{.Session}}{{end}}</span></span>{{end}}
     {{- if .Status}}<span class="status" data-status="{{.Status}}">{{.Status}}</span>{{end}}
