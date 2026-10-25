@@ -34,11 +34,22 @@ planviewer          # same as: planviewer tui
 
 List view: type to search, `↑/↓` move, `enter` open, `tab` cycle sort key, `shift+tab` reverse, `ctrl+←/→` (or `ctrl+t`) switch between plans and sessions, `ctrl+r` reload, `esc` clear search / quit.
 
+Search matches plan bodies and highlights the matching text in snippets:
+
+![Terminal search for retry showing matching snippets across Claude, Codex and Antigravity plans](screenshots/tui-search.png)
+
 ![Terminal session list showing sources, projects, branches and message counts](screenshots/tui-sessions.png)
 
 Plan and session views use `most`-style keys: `j/k`, `space/u`, `g/G` (or `t/b`), `/` and `?` to search, `n/N` next/previous match, `%` / `J` go to percent / line, `h` help, `q` back. In a session, the header shows the command to resume it (`claude --resume <id>`, `codex resume <id>` for Codex, `agy --conversation=<id>` for Antigravity, prefixed with `cd ~/<project> &&`), and `r` quits and prints it for you to run. A plan shows the same command for the session that wrote it, or just that session's ID if its transcript is gone.
 
 Markdown style follows the terminal background; set `GLAMOUR_STYLE` (e.g. `dark`, `light`, `dracula`) to override.
+
+<details>
+<summary>Rendered plan with a table, syntax highlighting and a resume command</summary>
+
+![Terminal plan reader showing a rate-limit table, highlighted Go code and the originating session's resume command](screenshots/tui-plan.png)
+
+</details>
 
 ## Web
 
@@ -46,6 +57,8 @@ Markdown style follows the terminal background; set `GLAMOUR_STYLE` (e.g. `dark`
 planviewer serve                 # http://localhost:8080
 planviewer serve -addr :9000     # or ADDR=:9000
 ```
+
+![Web plan list with search, sortable columns, sources, projects and approval statuses](screenshots/web-plans.png)
 
 `/` focuses search, arrows + `enter` open a plan, column headers sort. On a plan page, `r` toggles raw view, and the id of the session that wrote the plan links to that session's page. `/sessions` lists sessions the same way; a session page shows the conversation and a copyable resume command. On either page, `esc` or `backspace` goes back.
 
