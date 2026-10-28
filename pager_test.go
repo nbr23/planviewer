@@ -185,6 +185,35 @@ func TestHighlightLinePreservesText(t *testing.T) {
 	}
 }
 
+func TestExpandTabs(t *testing.T) {
+	for in, want := range map[string]string{
+		"no tabs":                       "no tabs",
+		"\tmu":                          "        mu",
+		"  \tmu":                        "        mu",
+		"a\tb\tc":                       "a       b       c",
+		"éé\tx":                         "éé      x",
+		"12345678\tx":                   "12345678        x",
+		titleStyle.Render("ab") + "\tx": titleStyle.Render("ab") + "      x",
+	} {
+		if got := expandTabs(in); got != want {
+			t.Errorf("expandTabs(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	p := newPager("notty")
+	p.setSize(80, 20)
+	p.open(document{name: "a.md", body: []byte("```go\nfunc f() {\n\treturn needle\n}\n```\n")}, parseQuery("needle").terms)
+	for _, l := range p.lines {
+		if strings.Contains(l, "\t") {
+			t.Fatalf("rendered line keeps a tab: %q", l)
+		}
+	}
+	m := p.matches[0]
+	if got := ansi.Strip(ansi.Cut(p.lines[m.line], m.start, m.end)); got != "needle" {
+		t.Fatalf("match after a tab covers %q", got)
+	}
+}
+
 func TestRenderConversation(t *testing.T) {
 	md, err := glamour.NewTermRenderer(glamour.WithStylePath("dark"), glamour.WithWordWrap(40))
 	if err != nil {

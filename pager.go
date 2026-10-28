@@ -21,6 +21,7 @@ const (
 	maxWrap          = 120
 	pagerFooterLines = 1
 	matchContext     = 2
+	tabWidth         = 8
 )
 
 var (
@@ -154,7 +155,11 @@ func (p *pager) render() {
 	if err != nil {
 		out = string(p.doc.body)
 	}
-	p.lines = trimBlank(strings.Split(out, "\n"))
+	lines := strings.Split(out, "\n")
+	for i, l := range lines {
+		lines[i] = expandTabs(l)
+	}
+	p.lines = trimBlank(lines)
 	if sameDoc {
 		p.top = p.top * len(p.lines) / oldLen
 	}
@@ -234,6 +239,25 @@ func dedent(lines []string) []string {
 		lines[i] = ansi.TruncateLeft(l, indent, "")
 	}
 	return lines
+}
+
+// A raw tab moves the terminal cursor without overwriting the cells it skips, and the renderer counts it as zero width.
+func expandTabs(line string) string {
+	if !strings.Contains(line, "\t") {
+		return line
+	}
+	var b strings.Builder
+	col := 0
+	for i, part := range strings.Split(line, "\t") {
+		if i > 0 {
+			n := tabWidth - col%tabWidth
+			b.WriteString(strings.Repeat(" ", n))
+			col += n
+		}
+		b.WriteString(part)
+		col += ansi.StringWidth(part)
+	}
+	return b.String()
 }
 
 func trimBlank(lines []string) []string {
